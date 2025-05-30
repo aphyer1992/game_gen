@@ -45,10 +45,10 @@ class Coordinates:
 class TerrType(Enum):
     GRASS = ("Grass", "#92D050")      # light green
     TREE = ("Tree", "#548235")        # dark green
-    WALL = ("Wall", "#A6A6A6")        # gray
     WATER = ("Water", "#00B0F0")      # blue
-    MOUNTAIN = ("Mountain", "#B7B7B7")# light gray
+    STONE = ("Stone", "#222222")    # dark
     DESERT = ("Desert", "#FFD966")    # yellow
+    LAVA = ("Lava", "#FF0000")        # red
 
     @property
     def color(self):
@@ -102,7 +102,6 @@ class Map:
         min_x = math.ceil(self.width * min_pct)
         max_x = math.floor(self.width * min(max_pct, 0.99999)) # we can't use 1.0 because it would be out of bounds
         return random.randint(min_x, max_x)
-
     
     def random_y_value(self, min_pct, max_pct):
         min_y = math.ceil(self.height * min_pct)
@@ -174,17 +173,17 @@ class Map:
 
 
 
-    def generate_river(self):
+    def generate_rivers(self):
         # set the river up to curve through the map
         river_checkpoints = [
-            Coordinates(self.random_x_value(0.2, 0.3), 0),
-            Coordinates(self.random_x_value(0.3, 0.4), self.random_y_value(0.3, 0.5)),
-            Coordinates(self.random_x_value(0.5, 0.7), self.random_y_value(0.7, 0.8)),
-            Coordinates(self.width - 1, self.random_y_value(0.7, 0.9))
+            Coordinates(self.random_x_value(0.2, 0.3), self.height - 1),
+            Coordinates(self.random_x_value(0.3, 0.4), self.random_y_value(0.5, 0.7)),
+            Coordinates(self.random_x_value(0.5, 0.7), self.random_y_value(0.2, 0.3)),
+            Coordinates(self.width - 1, self.random_y_value(0.1, 0.3))
         ]
         tributary_checkpoints = [
-            Coordinates(0, self.random_y_value(0.1, 0.3)),
-            Coordinates(self.random_x_value(0.1, 0.2), self.random_y_value(0.5, 0.6)),
+            Coordinates(0, self.random_y_value(0.7, 0.9)),
+            Coordinates(self.random_x_value(0.1, 0.2), self.random_y_value(0.4, 0.5)),
             river_checkpoints[2]
         ]
         for i in range(len(river_checkpoints) - 1):
@@ -227,11 +226,50 @@ class Map:
                         if self.is_valid_coordinates(square):
                             self.set_cell(square.x, square.y, TerrType.GRASS)
                                 
+    def generate_castle(self):
+        castle_y_size = self.random_y_value(0.25, 0.3)
+        castle_x_size = self.random_x_value(0.25, 0.3)
+        castle_y_min = self.random_y_value(0.6, 0.65)
+        castle_x_min = self.random_x_value(0.6, 0.65)
+        castle_y_max = castle_y_min + castle_y_size
+        castle_x_max = castle_x_min + castle_x_size
+
+        for y in range(castle_y_min, castle_y_max + 1):
+            for x in range(castle_x_min, castle_x_max + 1):
+                if self.is_valid_coordinates(Coordinates(x, y)):
+                    self.set_cell(x, y, TerrType.STONE)
+        
+        # indent the four walls to make the corners more castle-like
+        indent_depth = random.randint(1, min(2, min(castle_x_size, castle_y_size) // 3 - 1))
+        indent_offset = random.randint(indent_depth + 1, min(castle_x_size, castle_y_size) // 3)
+        for y in range(castle_y_min + indent_offset, castle_y_max - indent_offset + 1):
+            for x in range(castle_x_min, castle_x_min + indent_depth):
+                self.set_cell(x, y, TerrType.GRASS)
+            for x in range(castle_x_max - indent_depth + 1, castle_x_max + 1):
+                self.set_cell(x, y, TerrType.GRASS)
+        for x in range(castle_x_min + indent_offset, castle_x_max - indent_offset + 1):
+            for y in range(castle_y_min, castle_y_min + indent_depth):
+                self.set_cell(x, y, TerrType.GRASS)
+            for y in range(castle_y_max - indent_depth + 1, castle_y_max + 1):
+                self.set_cell(x, y, TerrType.GRASS)
+
+    def generate_lava(self):
+        for y in range(self.height // 2, self.height):
+            for x in range(self.width // 2, self.width):
+                if random.random() < 0.1 and self.get_cell(x, y) == TerrType.GRASS:
+                    self.set_cell(x, y, TerrType.LAVA)
+                    for neighbor in Coordinates(x, y).get_neighboring_coordinates():
+                        if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS and random.random() < 0.2:
+                            self.set_cell(neighbor.x, neighbor.y, TerrType.LAVA)
+                            next_neighbor = neighbor + neighbor - Coordinates(x,y)
+                            if self.is_valid_coordinates(next_neighbor) and self.get_cell(next_neighbor.x, next_neighbor.y) == TerrType.GRASS and random.random() < 0.5:
+                                self.set_cell(next_neighbor.x, next_neighbor.y, TerrType.LAVA)
 
 
-    
     def generate_map(self):
-        self.generate_river()
+        self.generate_rivers()
+        self.generate_castle()
+        self.generate_lava()
         
     def export_to_excel(self, filename):
         workbook = xlsxwriter.Workbook(filename)
@@ -250,20 +288,29 @@ class Map:
                     if cell_type.color not in format_cache:
                         format_cache[cell_type.color] = workbook.add_format({'bg_color': cell_type.color})
                     cell_format = format_cache[cell_type.color]
-                    worksheet.write(y, x, '', cell_format)
+                    worksheet.write(alt_y, x, '', cell_format)
 
         workbook.close()
+    
+    def gen_name(self):
+        return('{} the {} {} of {} {} {}'.format(
+            random.choice(['Against', 'Assault', 'Assail', 'Attack']),
+            random.choice(['Black', 'Beshadowed']),
+            random.choice(['Castle', 'Citadel']),
+            random.choice(['Dread', 'Dark']),
+            random.choice(['Emperor', 'Earl', 'Exarch']),
+            random.choice(['Frederick', 'Festin'])
+        ))
 
 if __name__ == "__main__":
     random.seed(42)  # For reproducibility
     map_width = 50
     map_height = 50
-    game_map = Map(map_width, map_height)
-    
-    game_map.generate_map()
-    
-    # Export the map to an Excel file
-    game_map.export_to_excel("game_map.xlsx")
-    os.startfile("game_map.xlsx")
-    
-    print(f"Map generated and exported to 'game_map.xlsx' with dimensions {map_width}x{map_height}.")
+    for i in range(3):
+        game_map = Map(map_width, map_height)
+        game_map.generate_map()
+        name = "game_map_{}.xlsx".format(i + 1)
+        game_map.export_to_excel(name)
+        os.startfile(name)
+        print(f"Map generated and exported to 'game_map.xlsx' with dimensions {map_width}x{map_height}.")
+    input("Press Enter to exit...")
