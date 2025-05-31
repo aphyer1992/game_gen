@@ -3,65 +3,7 @@ from enum import Enum
 import math
 import random
 import os
-
-class Coordinates:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-
-    def __repr__(self):
-        return f"Coordinates(x={self.x}, y={self.y})"
-
-    def __eq__(self, other):
-        if isinstance(other, Coordinates):
-            return self.x == other.x and self.y == other.y
-        return False
-    
-    def __add__(self, other):
-        return Coordinates(self.x + other.x, self.y + other.y)
-    
-    def __sub__(self, other):
-        return Coordinates(self.x - other.x, self.y - other.y)
-    
-    def __hash__(self):
-        return hash((self.x, self.y))
-    
-    def get_distance(self,other):
-        return(abs(self.x - other.x) + abs(self.y - other.y))
-    
-    def get_neighboring_coordinates(self):
-        return [
-            Coordinates(self.x + 1, self.y),
-            Coordinates(self.x - 1, self.y),
-            Coordinates(self.x, self.y + 1),
-            Coordinates(self.x, self.y - 1)
-        ]
-    
-    def get_coordinates_in_range(self, distance, exact=False):
-        coordinates = []
-        for dx in range(-distance, distance + 1):
-            for dy in range(-distance, distance + 1):
-                if (not exact) and ((abs(dx) + abs(dy)) < distance) or ((abs(dx) + abs(dy)) == distance):
-                    coordinates.append(Coordinates(self.x + dx, self.y + dy))
-        return coordinates
-
-class TerrType(Enum):
-    GRASS = ("Grass", "#92D050")      # light green
-    TREE = ("Tree", "#548235")        # dark green
-    WATER = ("Water", "#00B0F0")      # blue
-    BUILDING = ("Building", "#999999")    # gray
-    DESERT = ("Desert", "#FFD966")    # yellow
-    LAVA = ("Lava", "#FF0000")        # red
-    ROAD = ("Road", "#C2B280")        # brown
-
-    @property
-    def color(self):
-        return self.value[1]
-
-    @property
-    def label(self):
-        return self.value[0]
-
+from support_classes import Coordinates, TerrType
 
 class Map:
     def __init__(self, width, height):
@@ -163,7 +105,7 @@ class Map:
                         visited.update(island)
         return islands
     
-    def draw_river(self, start, end, set_terrain=TerrType.WATER, meander_coeff=0.5, widen_iterations=2, widen_coeff=0.2):
+    def draw_river(self, start, end, set_terrain=TerrType.WATER, meander_coeff=0.5, widen_iterations=2, widen_coeff=0.2, skip_terrains=[]):
         river_coords = [start]
         current_coord = start
         while current_coord != end:
@@ -188,11 +130,11 @@ class Map:
                         shore_coords.append(neighbor)
             river_coords = river_coords + [c for c in shore_coords if random.random() < widen_coeff]
         
+        river_coords = [c for c in river_coords if self.get_cell(c.x, c.y) not in skip_terrains]
         for coord in river_coords:
             if self.is_valid_coordinates(coord):
                 self.set_cell(coord.x, coord.y, set_terrain)
-
-
+        return(len(river_coords))
 
     def generate_rivers(self):
         # set the river up to curve through the map
@@ -510,16 +452,27 @@ class Map:
             total_size += self.generate_building()
 
     def generate_lava(self):
-        for y in range(self.height // 2, self.height):
-            for x in range(self.width // 2, self.width):
-                if random.random() < 0.1 and self.get_cell(x, y) == TerrType.GRASS:
-                    self.set_cell(x, y, TerrType.LAVA)
-                    for neighbor in Coordinates(x, y).get_neighboring_coordinates():
-                        if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS and random.random() < 0.2:
-                            self.set_cell(neighbor.x, neighbor.y, TerrType.LAVA)
-                            next_neighbor = neighbor + neighbor - Coordinates(x,y)
-                            if self.is_valid_coordinates(next_neighbor) and self.get_cell(next_neighbor.x, next_neighbor.y) == TerrType.GRASS and random.random() < 0.5:
-                                self.set_cell(next_neighbor.x, next_neighbor.y, TerrType.LAVA)
+        desired_lava_count = self.width * self.height // 100 * (3 + random.random())  # 3-4% of the map
+        lava_count = 0
+        while lava_count < desired_lava_count:
+            start = Coordinates(self.random_x_value(0.5, 1.0), self.random_y_value(0.5, 1.0))
+            end = random.choice(self.valid_coordinates_in_range(start, 10, exact=False))
+            lava_count += self.draw_river(start, end, set_terrain=TerrType.LAVA, meander_coeff=0.2, widen_iterations=0, widen_coeff=0, skip_terrains=[TerrType.WATER, TerrType.LAVA, TerrType.BUILDING])
+            
+            for y in range(self.height // 2, self.height):
+                for x in range(self.width // 2, self.width):
+                    if random.random() < 0.02 and self.get_cell(x, y) in [TerrType.GRASS, TerrType.DESERT]:
+                        self.set_cell(x, y, TerrType.LAVA)
+                        lava_count += 1
+                        # lava streaks
+                        for neighbor in Coordinates(x, y).get_neighboring_coordinates():
+                            if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS and random.random() < 0.2:
+                                self.set_cell(neighbor.x, neighbor.y, TerrType.LAVA)
+                                next_neighbor = neighbor + neighbor - Coordinates(x,y)
+                                if self.is_valid_coordinates(next_neighbor) and self.get_cell(next_neighbor.x, next_neighbor.y) == TerrType.GRASS and random.random() < 0.5:
+                                    lava_count += 1
+                                    self.set_cell(next_neighbor.x, next_neighbor.y, TerrType.LAVA)
+        
 
     def generate_forests(self):
         num_forests = random.randint(3, 5)
