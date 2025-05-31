@@ -1,0 +1,170 @@
+The game is not technically turn-based.  But you are a speedrunner.  For you it might as well be.  Every 'turn' is 1 second.  
+
+You spawn at the Shrine in the bottom left.
+
+Your goal is to finish the game (by defeating the final boss) as quickly as possible.
+
+The game is deterministic.  If you find yourself needing to choose e.g. a square for an enemy to move to when two are equidistant from you, choose the lower-numbered on (lowest y, then lowest x).
+
+You have 3 Life.  If that ever hits 0, you die and you respawn (with full life and all progress saved) at the last shrine you interacted with.
+
+Each turn, you may either:
+1. Move up to 2 spaces (not diagonally)
+OR
+2. Attack an adjacent space.  If there is an enemy in that space:
+  a. It takes 1 damage.
+  b. It is knocked back 1 space away from you (if possible).
+  c. It skips its next action.
+OR
+3. Interact (various effects depending on what is at your location).
+                                            
+
+You can express commands with two characters per turn:
+
+ww  (move 2 spaces north)
+wa  (move 1 space north and 1 space west)
+a.  (move 1 space west and end turn)
+xa  (attack west)
+
+
+UPGRADES:
+Water Boots: helps with Water, see below,
+Flame Shield: helps with Lava, see below.
+Woodcutter's Axe: helps with Trees, see below.
+Desert Cloak: helps with Desert, see below.
+Bow: when you attack, the attack continues in a straight line until it hits an enemy.
+Shrine Maiden's Blessing: At a Shrine, you can use your turn to warp to another shrine.  This takes 4 turns total (the turn you use it, plus a travel animation that takes 3 seconds).
+
+TERRAINS:
+
+WATER (blue): if you enter water without the Water Boots, you die.
+LAVA (red): if you enter lava without the Flame Shield, you die.
+TREE (dark green): impassible.  With the Woodcutter's Axe, you can attack a Tree to remove it and replace it with Grass.
+DESERT (yellow): without the Desert Cloak, if you begin your turn in the Desert, you take 1 damage, and for your turn you can only move 1 space.
+WALL (border between squares): impassible.
+
+If a figure would be knocked back into impassible terrain, it stops moving.
+If a figure finds itself in impassible terrain for some reason, push it to an adjacent empty space.  If no such space exists, it dies.
+(I believe the only way for this to happen without glitches is for a sawblade to push you into a wall).
+
+Many things will knock the player flying back 2 tiles.  
+If the middle tile is impassible, they will bounce off the wall and not move.  
+But if the middle tile is only hazardous, they will be knocked over it and will be fine.
+(This is one of the main potential skips before glitches).
+
+LOCATIONS:
+
+Shrine: you may interact with a Shrine to restore your HP to full and set it as your respawn point.
+Pickups: you may interact with a Power Gem or an Item to pick it up.
+Seals: see below.
+
+ENEMIES:
+
+  Ogre.  
+
+HP 3.  On its turn:
+
+1. If you are next to it, it attacks you.  This deals 1 damage and knocks you flying back 2 spaces.
+OR
+2. If it is within 5 spaces of you, it moves 1 space towards you.
+OR
+3. Otherwise, it stays still.
+
+An Ogre cannot enter water/lava, and will die if knocked into them.
+
+  Lava Snake.  
+
+HP 1.  Always spawns in Lava, stationary.  On its turn:
+
+1. If you are collinear with it and within 5 spaces, it aims at you and takes a deep breath.
+2. On its next turn after that, it breathes fire in that direction.  This deals 1 damage and knocks you flying back 2 spaces if you are still in that direction.
+3. Otherwise, it does nothing.
+
+  Sawblade.  
+
+Spawns with a given pattern, moves 1 space/turn following that pattern (back and forth down a corridor?  In a circle around a room?)
+
+You cannot move into it (treat as impassible terrain.  If you try, you fail to move and suffer 1 damage).
+
+If it moves into you, you take 1 damage and are knocked flying back 2 spaces (in the direction of its movement).
+
+  D(ark?) E(mperor?) F(estin?)
+
+The final boss.  Spawns in a 5x5 room with a Seal in each corner.
+
+He behaves an an Ogre except:
+
+1. He will only aggro onto the player if they are in the room.  If they are not, he will move back towards the center of the room. 
+2. He has infinite health (though he is still subject to knockback and stun).  
+  a. To defeat him, the player must Interact with the four Seals in the corners of his room.  
+  b. Each interaction consumes 4 Power Gems and breaks that Seal.  
+  c. Once all three are broken, he dies in one hit.
+
+
+GLITCHES:
+
+The game is divided into rounds.
+
+Round 0: Each player gets the best time they can on the basic map.
+Round 1,2,3...: Each player draws a random Glitch.  They (and only they) may use that glitch this round.  In subsequent rounds, however, all players may use that glitch.
+
+So you might have:
+
+Round 1: Andrew knows Glitch X. Sean knows Glitch Y.
+Round 2: Andrew knows Glitches X, Y and A.  Sean knows Glitches X, Y and B.
+Round 3: Andrew knows Glitches X, Y, A, B and P.  Sean knows Glitches X, Y, A, B and Q.
+
+(by which point you likely have every glitch in the game, unless we can get rather a lot of different good ones)
+
+GLITCHES I THINK ARE GOOD:
+
+  CORNER CLIP
+
+If you are at the outside corner of a wall:
+
+YOU _____
+    |
+    |
+
+you can exploit a hole in the wall hitbox.  Use your turn to move through the wall, into the corner tile:
+
+    _____
+    |YOU
+    |
+
+You cannot do this if the corner tile is occupied or impassible.
+
+  SHRINEWARP MOMENTUM
+
+Behind the scenes, the shrine warp moves you to your destination over the course of 3 seconds.  
+
+By entering a move command at the right time, you can have your character begin moving just as the warp begins, and retain this momentum through the warp.
+
+This causes you to land 3 tiles offset from the target shrine, in whichever direction you chose.
+
+
+  SUPERSLIDE
+
+By 
+
+GLITCHES I AM LESS SURE/NOT SURE OF:
+
+  INFINITE SWORD GLITCH
+
+By attacking at the right timing, you can lock your character in the attack animation.
+
+To set this up, you spend a turn attacking.  From now on, your character is attacking in that direction every turn (even if you moved).
+
+This continues until you die and respawn.
+
+  SPAWNING SAVESTATE
+
+By closing out of a previous run in the right (wrong?) way, you can confuse the game when you start a new run.  It will spawn you at a shrine of your choice.
+
+(This is neat, and fairly realistic, but mostly I think it just ends up being used to spawn next to a helpful item, I'm not convinced by the gameplay).
+
+  RESPAWN EXPLOIT
+
+If you die at the same time as collecting an item, you collect the item, but it is not removed from the map.
+
+(While this is very realistic, it lends itself to really bad runs where you find the quickest Power Gem to collect ten times in a row.)
