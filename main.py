@@ -49,7 +49,7 @@ class TerrType(Enum):
     GRASS = ("Grass", "#92D050")      # light green
     TREE = ("Tree", "#548235")        # dark green
     WATER = ("Water", "#00B0F0")      # blue
-    STONE = ("Stone", "#222222")    # dark
+    BUILDING = ("Building", "#999999")    # gray
     DESERT = ("Desert", "#FFD966")    # yellow
     LAVA = ("Lava", "#FF0000")        # red
     ROAD = ("Road", "#C2B280")        # brown
@@ -68,6 +68,9 @@ class Map:
         self.width = width
         self.height = height
         self.cells = [[TerrType.GRASS for _ in range(width)] for _ in range(height)]
+        self.room_numbers = [[0 for _ in range(width)] for _ in range(height)]
+        self.next_room_number = 1
+        self.doors = []
 
     def set_cell(self, x, y, value):
         if 0 <= x < self.width and 0 <= y < self.height:
@@ -77,6 +80,20 @@ class Map:
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.cells[y][x]
         return None
+    
+    def get_room_number(self, x, y):
+        if 0 <= x < self.width and 0 <= y < self.height:
+            return self.room_numbers[y][x]
+        return None
+
+    def add_room(self, contents):
+        for coord in contents:
+            if self.is_valid_coordinates(coord):
+                self.room_numbers[coord.y][coord.x] = self.next_room_number
+        self.next_room_number += 1
+
+    def is_door(self, coord1, coord2):
+        return (coord1, coord2) in self.doors or (coord2, coord1) in self.doors
 
     def is_valid_coordinates(self, coordinates):
         return 0 <= coordinates.x < self.width and 0 <= coordinates.y < self.height
@@ -215,7 +232,6 @@ class Map:
                         if (not self.is_valid_coordinates(Coordinates(x_temp, y_temp))) or (self.get_cell(x_temp, y_temp) != TerrType.WATER):
                             all_water = False
                 if all_water:
-                    print(f"Found large water block at ({x}, {y})")
                     island_squares = [Coordinates(x, y)]
                     stack = [Coordinates(x, y)]
                     while stack:
@@ -225,7 +241,6 @@ class Map:
                             if self.is_valid_coordinates(neighbor) and neighbor not in island_squares and dist_to_land >= 3 and random.random() < 0.8:
                                 island_squares.append(neighbor)
                                 stack.append(neighbor)
-                    print('Adding island squares:', island_squares)
                     for square in island_squares:
                         if self.is_valid_coordinates(square):
                             self.set_cell(square.x, square.y, TerrType.GRASS)
@@ -297,9 +312,7 @@ class Map:
             self.generate_desert(small_desert_center, size=random.randint(7,9), subcenters = random.randint(0,1))
 
     def generate_bridges(self):
-        print('1')
         islands = self.split_map_by_terrain([TerrType.WATER])
-        print('2')
         islands = [island for island in islands if random.random() * 20 <= len(island)]  # filter out most small islands
         num_bridges = random.randint(1, 3)
         bridge_locs = []
@@ -329,7 +342,14 @@ class Map:
             self.draw_river(start_coord, end_coord, set_terrain=TerrType.ROAD, meander_coeff=0.0, widen_iterations=0)
             num_bridges -= 1
 
-
+    def get_gate_position(self, start, size):
+        if size%2 == 0:
+            gate_size = 2
+        else:
+            gate_size = 3
+        range_start = start + (size-gate_size) // 2
+        range_end = start + (size+gate_size) // 2
+        return([range_start, range_end])
 
     def generate_castle(self):
         castle_y_size = self.random_y_value(0.25, 0.3)
@@ -339,24 +359,155 @@ class Map:
         castle_y_max = castle_y_min + castle_y_size
         castle_x_max = castle_x_min + castle_x_size
 
+        contents = []
+
         for y in range(castle_y_min, castle_y_max + 1):
             for x in range(castle_x_min, castle_x_max + 1):
                 if self.is_valid_coordinates(Coordinates(x, y)):
-                    self.set_cell(x, y, TerrType.STONE)
+                    contents.append(Coordinates(x, y))
         
         # indent the four walls to make the corners more castle-like
         indent_depth = random.randint(1, min(2, min(castle_x_size, castle_y_size) // 3 - 1))
         indent_offset = random.randint(indent_depth + 1, min(castle_x_size, castle_y_size) // 3)
         for y in range(castle_y_min + indent_offset, castle_y_max - indent_offset + 1):
             for x in range(castle_x_min, castle_x_min + indent_depth):
-                self.set_cell(x, y, TerrType.GRASS)
+                contents.remove(Coordinates(x, y))
             for x in range(castle_x_max - indent_depth + 1, castle_x_max + 1):
-                self.set_cell(x, y, TerrType.GRASS)
+                contents.remove(Coordinates(x, y))
         for x in range(castle_x_min + indent_offset, castle_x_max - indent_offset + 1):
             for y in range(castle_y_min, castle_y_min + indent_depth):
-                self.set_cell(x, y, TerrType.GRASS)
+                contents.remove(Coordinates(x, y))
             for y in range(castle_y_max - indent_depth + 1, castle_y_max + 1):
-                self.set_cell(x, y, TerrType.GRASS)
+                contents.remove(Coordinates(x, y))
+        
+        print('Castle has size {}x{} starting at ({}, {}) with indent depth {}'.format(castle_x_size, castle_y_size, castle_x_min, castle_y_min, indent_depth))
+
+        if random.random() < 0.5: # gate on bottom
+            [gate_x_start, gate_x_end] = self.get_gate_position(castle_x_min, castle_x_size)
+            gate_y = min([c.y for c in contents if c.x == gate_x_start])
+            print(f"Adding gate at ({gate_x_start}, {gate_y}) to ({gate_x_end}, {gate_y})")
+            for x in range(gate_x_start, gate_x_end + 1):
+                self.doors.append((Coordinates(x, gate_y), Coordinates(x, gate_y - 1)))
+        else: # gate on left
+            [gate_y_start, gate_y_end] = self.get_gate_position(castle_y_min, castle_y_size)
+            gate_x = min([c.x for c in contents if c.y == gate_y_start])
+            print(f"Adding gate at ({gate_x}, {gate_y_start}) to ({gate_x}, {gate_y_end})")
+            for y in range(gate_y_start, gate_y_end + 1):
+                self.doors.append((Coordinates(gate_x, y), Coordinates(gate_x - 1, y)))
+
+        self.add_room(contents)
+        for coord in contents:
+            if self.is_valid_coordinates(coord):
+                self.set_cell(coord.x, coord.y, TerrType.BUILDING)
+                
+
+    def find_spot_for_building(self, base_x_size, base_y_size):
+        for x in random.sample(range(self.width - base_x_size), 1):
+            for y in random.sample(range(self.height - base_y_size), 1):
+                if all(self.get_cell(x + dx, y + dy) not in [TerrType.BUILDING, TerrType.WATER] for dx in range(base_x_size) for dy in range(base_y_size)):
+                    return Coordinates(x, y)
+
+    def take_bite(self, start_coord, x_size, y_size, x_corner, y_corner, bite_size):
+        if x_corner == 0:
+            x_range = range(start_coord.x, start_coord.x + bite_size)
+        else:
+            x_range = range(start_coord.x + x_size - bite_size, start_coord.x + x_size)
+        if y_corner == 0:
+            y_range = range(start_coord.y, start_coord.y + bite_size)
+        else:   
+            y_range = range(start_coord.y + y_size - bite_size, start_coord.y + y_size)
+        
+        bite_contents = []
+        for y in y_range:
+            for x in x_range:
+                if self.is_valid_coordinates(Coordinates(x, y)):
+                    bite_contents.append(Coordinates(x, y)) 
+        return bite_contents
+        
+
+    def generate_building(self):
+        start_coord = None
+        while start_coord is None:
+            base_x_size = random.randint(1, 8)
+            base_y_size = random.randint(1, 8)
+            start_coord = self.find_spot_for_building(base_x_size, base_y_size)
+        
+        contents = []
+        for y in range(start_coord.y, start_coord.y + base_y_size):
+            for x in range(start_coord.x, start_coord.x + base_x_size):
+                if self.is_valid_coordinates(Coordinates(x, y)):
+                    contents.append(Coordinates(x, y))
+        # building shapes are rectangles with 0, 1, 2 or 4 bites taken out of corners.
+        min_dim = min(base_x_size, base_y_size)
+        max_dim = max(base_x_size, base_y_size)
+        num_bites = 0
+        if random.random() < (min_dim - 1) * 0.17: # we obviously cannot take bites from a 1x2, rarely from 2x2, always beyond 6
+            if min_dim == 2:
+                num_bites = 1
+            else:
+                num_bites = random.randint(1, 4)
+            bites = random.sample([[0,1], [0,0], [1,0], [1,1]], num_bites)
+            for bite in bites:
+                if num_bites == 1:
+                    bite_size = random.randint(1, min_dim // 2)
+                else:
+                    bite_size = random.randint(1, (min_dim-1) // 2)
+                bite_contents = self.take_bite(start_coord, base_x_size, base_y_size, bite[0], bite[1], bite_size)
+                contents = [c for c in contents if c not in bite_contents]
+        self.add_room(contents)
+        for coord in contents: 
+            if self.is_valid_coordinates(coord):
+                self.set_cell(coord.x, coord.y, TerrType.BUILDING)
+        
+        sides = ['top', 'bottom', 'left', 'right']
+        
+        if num_bites == 0:
+            num_doors = random.choice([1,1,1,1,2,2,3])
+        elif num_bites == 1:
+            num_doors = random.choice([1,2])
+        elif num_bites == 2:
+            num_doors = random.choice([1,2])
+        elif num_bites == 3:
+            num_doors = random.choice([1,2,3,4])
+        elif num_bites == 4:
+            num_doors = random.choice([1,2,3,4])
+        
+        doors_made = 0
+        while doors_made < num_doors:
+            side = random.choice(sides)
+            if side == 'top':
+                top = max(coord.y for coord in contents)
+                valid = [coord for coord in contents if coord.y == top]
+                inside = random.choice(valid)
+                outside = Coordinates(inside.x, inside.y + 1)
+            elif side == 'bottom':
+                bottom = min(coord.y for coord in contents)
+                valid = [coord for coord in contents if coord.y == bottom]
+                inside = random.choice(valid)
+                outside = Coordinates(inside.x, inside.y - 1)
+            elif side == 'left':
+                left = min(coord.x for coord in contents)
+                valid = [coord for coord in contents if coord.x == left]
+                inside = random.choice(valid)
+                outside = Coordinates(inside.x - 1, inside.y)
+            elif side == 'right':
+                right = max(coord.x for coord in contents)
+                valid = [coord for coord in contents if coord.x == right]
+                inside = random.choice(valid)
+                outside = Coordinates(inside.x + 1, inside.y)
+
+            if self.is_valid_coordinates(outside) and self.get_cell(outside.x, outside.y) not in [TerrType.WATER]:
+                self.doors.append((inside, outside))
+                doors_made += 1
+                sides.remove(side)
+
+        return(len(contents))
+
+    def generate_buildings(self):
+        total_size = 0
+        desired_size = self.width * self.height // 20 * (1 + random.random())  # 5-10% of the map
+        while total_size < desired_size:
+            total_size += self.generate_building()
 
     def generate_lava(self):
         for y in range(self.height // 2, self.height):
@@ -401,6 +552,7 @@ class Map:
         self.generate_deserts()
         self.generate_bridges()
         self.generate_castle()
+        self.generate_buildings()
         self.generate_lava()
         self.generate_forests()
         self.scatter_trees()
@@ -416,13 +568,44 @@ class Map:
         for alt_y in range(self.height): # we want low y to show up at the bottom...
             y = self.height - 1 - alt_y
             for x in range(self.width):
+                 # Determine borders
+                borders = {}
+                # Check up
+                if y < self.height - 1:
+                    if self.room_numbers[y][x] != self.room_numbers[y + 1][x]:
+                        if not self.is_door(Coordinates(x, y), Coordinates(x, y + 1)):
+                            borders['top'] = 2  # thick
+                # Check down
+                if y > 0:
+                    if self.room_numbers[y][x] != self.room_numbers[y - 1][x]:
+                        if not self.is_door(Coordinates(x, y), Coordinates(x, y - 1)):
+                            borders['bottom'] = 2
+                # Check left
+                if x > 0:   
+                    if self.room_numbers[y][x] != self.room_numbers[y][x - 1]:
+                        if not self.is_door(Coordinates(x, y), Coordinates(x - 1, y)):
+                            borders['left'] = 2
+                # Check right
+                if x < self.width - 1:
+                    if self.room_numbers[y][x] != self.room_numbers[y][x + 1]:
+                        if not self.is_door(Coordinates(x, y), Coordinates(x + 1, y)):
+                            borders['right'] = 2
+                # Build format key
+                border_key = (borders.get('top', 0), borders.get('bottom', 0),
+                            borders.get('left', 0), borders.get('right', 0))
+            
                 cell_type = self.get_cell(x, y)
-                if cell_type:
-                    # Cache formats by color
-                    if cell_type.color not in format_cache:
-                        format_cache[cell_type.color] = workbook.add_format({'bg_color': cell_type.color})
-                    cell_format = format_cache[cell_type.color]
-                    worksheet.write(alt_y, x, '', cell_format)
+                fmt_key = (cell_type.color, border_key)
+                if fmt_key not in format_cache:
+                    fmt_dict = {'bg_color': cell_type.color}
+                    if borders.get('top'): fmt_dict['top'] = borders['top']
+                    if borders.get('bottom'): fmt_dict['bottom'] = borders['bottom']
+                    if borders.get('left'): fmt_dict['left'] = borders['left']
+                    if borders.get('right'): fmt_dict['right'] = borders['right']
+                    format_cache[fmt_key] = workbook.add_format(fmt_dict)
+                cell_format = format_cache[fmt_key]
+            
+                worksheet.write(alt_y, x, '', cell_format)
 
         workbook.close()
     
