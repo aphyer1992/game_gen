@@ -23,6 +23,9 @@ class Coordinates:
     def __sub__(self, other):
         return Coordinates(self.x - other.x, self.y - other.y)
     
+    def __hash__(self):
+        return hash((self.x, self.y))
+    
     def get_distance(self,other):
         return(abs(self.x - other.x) + abs(self.y - other.y))
     
@@ -49,6 +52,7 @@ class TerrType(Enum):
     STONE = ("Stone", "#222222")    # dark
     DESERT = ("Desert", "#FFD966")    # yellow
     LAVA = ("Lava", "#FF0000")        # red
+    ROAD = ("Road", "#C2B280")        # brown
 
     @property
     def color(self):
@@ -136,13 +140,13 @@ class Map:
         for y in range(self.height):
             for x in range(self.width):
                 if self.get_cell(x, y) not in split_terrain_types:
-                    island = self._flood_fill(Coordinates(x, y), split_terrain_types)
+                    island = self.flood_fill(Coordinates(x, y), split_terrain_types)
                     if island:
                         islands.append(island)
                         visited.update(island)
         return islands
     
-    def draw_river(self, start, end, meander_coeff=0.5, widen_iterations=2, widen_coeff=0.2):
+    def draw_river(self, start, end, set_terrain=TerrType.WATER, meander_coeff=0.5, widen_iterations=2, widen_coeff=0.2):
         river_coords = [start]
         current_coord = start
         while current_coord != end:
@@ -169,7 +173,7 @@ class Map:
         
         for coord in river_coords:
             if self.is_valid_coordinates(coord):
-                self.set_cell(coord.x, coord.y, TerrType.WATER)
+                self.set_cell(coord.x, coord.y, set_terrain)
 
 
 
@@ -225,7 +229,108 @@ class Map:
                     for square in island_squares:
                         if self.is_valid_coordinates(square):
                             self.set_cell(square.x, square.y, TerrType.GRASS)
-                                
+
+    def find_closest_distance(self, first_group, second_group):
+        closest_distance = float('inf')
+        closest_start = None
+        closest_end = None
+        for coord1 in first_group:
+            for coord2 in second_group:
+                distance = coord1.get_distance(coord2)
+                if distance < closest_distance:
+                    closest_distance = distance
+                    closest_start = coord1
+                    closest_end = coord2
+        return [closest_distance, closest_start, closest_end]
+
+
+    def generate_desert(self, center, size, subcenters=0):
+        marked_cells = set()
+        marked_cells.add(center)
+        for i in range(size):
+            to_mark = set()
+            for coord in marked_cells:
+                for neighbor in coord.get_neighboring_coordinates():
+                    if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS:
+                        if random.random() < 0.8:
+                            to_mark.add(neighbor)
+            marked_cells.update(to_mark)
+        for i in range(subcenters):
+            subcenter = random.choice(center.get_coordinates_in_range(size-1, exact=True))
+            sub_marked_cells = set()
+            sub_marked_cells.add(subcenter)
+            for i in range(size // 2):
+                to_mark = set()
+                for coord in sub_marked_cells:
+                    for neighbor in coord.get_neighboring_coordinates():
+                        if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS:
+                            if random.random() < 0.8:
+                                self.set_cell(neighbor.x, neighbor.y, TerrType.DESERT)
+                                to_mark.add(neighbor)
+                sub_marked_cells.update(to_mark)
+            marked_cells.update(sub_marked_cells)
+
+        for coord in marked_cells:
+            if self.is_valid_coordinates(coord) and self.get_cell(coord.x, coord.y) == TerrType.GRASS:
+                self.set_cell(coord.x, coord.y, TerrType.DESERT)
+
+    def generate_deserts(self):
+        # one big desert, near an edge and not near the top right/bottom left corners
+        large_desert_center = random.choice([
+            Coordinates(self.random_x_value(0, 0.1), self.random_y_value(0.5, 1)),
+            Coordinates(self.random_x_value(0.9, 1.0), self.random_y_value(0, 0.5)),
+            Coordinates(self.random_x_value(0.5, 1.0), self.random_y_value(0, 0.1)),
+            Coordinates(self.random_x_value(0, 0.5), self.random_y_value(0.9, 1.0)),
+        ])
+        self.generate_desert(large_desert_center, size=random.randint(13, 15), subcenters=random.randint(1, 3))
+
+        for i in range(random.randint(1, 3)):
+            small_desert_center = Coordinates(
+                self.random_x_value(0.0, 1.0),  
+                self.random_y_value(0.0, 1.0)
+            )
+            while small_desert_center.get_distance(Coordinates(0,0)) < 10:
+                small_desert_center = Coordinates(
+                    self.random_x_value(0.0, 1.0),  
+                    self.random_y_value(0.0, 1.0)
+                )
+            self.generate_desert(small_desert_center, size=random.randint(7,9), subcenters = random.randint(0,1))
+
+    def generate_bridges(self):
+        print('1')
+        islands = self.split_map_by_terrain([TerrType.WATER])
+        print('2')
+        islands = [island for island in islands if random.random() * 20 <= len(island)]  # filter out most small islands
+        num_bridges = random.randint(1, 3)
+        bridge_locs = []
+        iterations = 0
+        while num_bridges > 0:
+            iterations += 1
+            if iterations > 100:
+                print("Too many iterations, stopping bridge generation.")
+                break
+            start_island = random.choice(islands)
+            end_island = random.choice(islands)
+            if start_island == end_island:
+                continue
+            [closest_distance, start_coord, end_coord] = self.find_closest_distance(start_island, end_island)
+            if closest_distance > 5:
+                continue
+            if closest_distance <= 1:
+                continue
+            # we repurpose the river drawing function to draw bridges
+            too_close = False
+            for l in bridge_locs:
+                if start_coord.get_distance(l) < 20 or end_coord.get_distance(l) < 20:
+                    too_close = True
+            if too_close:
+                continue
+            print(f"Drawing bridge from {start_coord} to {end_coord}")
+            self.draw_river(start_coord, end_coord, set_terrain=TerrType.ROAD, meander_coeff=0.0, widen_iterations=0)
+            num_bridges -= 1
+
+
+
     def generate_castle(self):
         castle_y_size = self.random_y_value(0.25, 0.3)
         castle_x_size = self.random_x_value(0.25, 0.3)
@@ -265,12 +370,41 @@ class Map:
                             if self.is_valid_coordinates(next_neighbor) and self.get_cell(next_neighbor.x, next_neighbor.y) == TerrType.GRASS and random.random() < 0.5:
                                 self.set_cell(next_neighbor.x, next_neighbor.y, TerrType.LAVA)
 
+    def generate_forests(self):
+        num_forests = random.randint(3, 5)
+        for _ in range(num_forests):
+            center = None
+            while center is None or self.get_cell(center.x, center.y) != TerrType.GRASS:
+                center = Coordinates(
+                    self.random_x_value(0.1, 0.9),
+                    self.random_y_value(0.1, 0.9)
+                )
+            base_size = random.randint(3, 6)
+            for c in self.valid_coordinates_in_range(center, base_size * 2, exact=False):
+                if self.get_cell(c.x, c.y) == TerrType.GRASS and random.random() < (1 - (c.get_distance(center) / (base_size * 2))):
+                    self.set_cell(c.x, c.y, TerrType.TREE)
+            
+            while random.random() < 0.5:
+                subcenter = random.choice(center.get_coordinates_in_range(base_size, exact=True))
+                for c in self.valid_coordinates_in_range(subcenter, base_size, exact=False):
+                    if self.get_cell(c.x, c.y) == TerrType.GRASS and random.random() < 0.5:
+                        self.set_cell(c.x, c.y, TerrType.TREE)
+
+    def scatter_trees(self):
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.get_cell(x, y) == TerrType.GRASS and random.random() < 0.01:
+                    self.set_cell(x, y, TerrType.TREE)
 
     def generate_map(self):
         self.generate_rivers()
+        self.generate_deserts()
+        self.generate_bridges()
         self.generate_castle()
         self.generate_lava()
-        
+        self.generate_forests()
+        self.scatter_trees()
+
     def export_to_excel(self, filename):
         workbook = xlsxwriter.Workbook(filename)
         worksheet = workbook.add_worksheet()
@@ -295,9 +429,9 @@ class Map:
     def gen_name(self):
         return('{} the {} {} of {} {} {}'.format(
             random.choice(['Against', 'Assault', 'Assail', 'Attack']),
-            random.choice(['Black', 'Beshadowed']),
+            random.choice(['Black', 'Beshadowed', 'Blighted']),
             random.choice(['Castle', 'Citadel']),
-            random.choice(['Dread', 'Dark']),
+            random.choice(['Dread', 'Dark', 'Despicable']),
             random.choice(['Emperor', 'Earl', 'Exarch']),
             random.choice(['Frederick', 'Festin'])
         ))
@@ -312,5 +446,5 @@ if __name__ == "__main__":
         name = "game_map_{}.xlsx".format(i + 1)
         game_map.export_to_excel(name)
         os.startfile(name)
-        print(f"Map generated and exported to 'game_map.xlsx' with dimensions {map_width}x{map_height}.")
+        print(f"Map generated and exported to '{name}' with dimensions {map_width}x{map_height}.")
     input("Press Enter to exit...")
