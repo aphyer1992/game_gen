@@ -3,7 +3,7 @@ from enum import Enum
 import math
 import random
 import os
-from support_classes import Coordinates, TerrType
+from support_classes import Coordinates, TerrType, CellContents
 
 class Map:
     def __init__(self, width, height):
@@ -11,6 +11,7 @@ class Map:
         self.height = height
         self.cells = [[TerrType.GRASS for _ in range(width)] for _ in range(height)]
         self.room_numbers = [[0 for _ in range(width)] for _ in range(height)]
+        self.cell_contents = [[CellContents.EMPTY for _ in range(width)] for _ in range(height)]
         self.next_room_number = 1
         self.doors = []
 
@@ -500,6 +501,34 @@ class Map:
                 if self.get_cell(x, y) == TerrType.GRASS and random.random() < 0.01:
                     self.set_cell(x, y, TerrType.TREE)
 
+    def place_items(self):
+        self.cell_contents[0][0] = CellContents.SHRINE
+        items_to_place = 30 # 20 gems, 5 shrines, 5 pickups
+        items_placed = 0
+        item_locations = [Coordinates(0, 0)]  # start with the shrine location
+        tries = 0
+        while items_placed < items_to_place:
+            x = random.randint(0, self.width - 1)
+            y = random.randint(0, self.height - 1)
+            new_loc = Coordinates(x, y)
+            min_spread = (self.width + self.height) // 10
+            if self.get_cell(x, y).clear_terrain and self.find_closest_distance([new_loc], item_locations)[0] >= min_spread :
+                item_locations.append(new_loc)
+                items_placed += 1
+            tries += 1
+            if tries > 1000:
+                raise("Too many tries to place items, check the map size or item count.")
+        random.shuffle(item_locations)
+        for i in range(20):
+            self.cell_contents[item_locations[i].y][item_locations[i].x] = CellContents.GEM
+        for i in range(20, 25):
+            self.cell_contents[item_locations[i].y][item_locations[i].x] = CellContents.SHRINE
+        self.cell_contents[item_locations[25].y][item_locations[25].x] = CellContents.DESERT_CLOAK
+        self.cell_contents[item_locations[26].y][item_locations[26].x] = CellContents.BOW
+        self.cell_contents[item_locations[27].y][item_locations[27].x] = CellContents.WATER_BOOTS
+        self.cell_contents[item_locations[28].y][item_locations[28].x] = CellContents.FIRE_SHIELD
+        self.cell_contents[item_locations[29].y][item_locations[29].x] = CellContents.BLESSING
+    
     def generate_map(self):
         self.generate_rivers()
         self.generate_deserts()
@@ -509,6 +538,7 @@ class Map:
         self.generate_lava()
         self.generate_forests()
         self.scatter_trees()
+        self.place_items()
 
     def export_to_excel(self, filename):
         workbook = xlsxwriter.Workbook(filename)
@@ -548,17 +578,22 @@ class Map:
                             borders.get('left', 0), borders.get('right', 0))
             
                 cell_type = self.get_cell(x, y)
-                fmt_key = (cell_type.color, border_key)
+                cell_contents = self.cell_contents[y][x]
+                contents_key = cell_contents.label
+                fmt_key = (cell_type.color, border_key, contents_key)
                 if fmt_key not in format_cache:
                     fmt_dict = {'bg_color': cell_type.color}
                     if borders.get('top'): fmt_dict['top'] = borders['top']
                     if borders.get('bottom'): fmt_dict['bottom'] = borders['bottom']
                     if borders.get('left'): fmt_dict['left'] = borders['left']
                     if borders.get('right'): fmt_dict['right'] = borders['right']
+                    fmt_dict['align'] = 'center'
+                    fmt_dict['valign'] = 'vcenter'
+                    fmt_dict['font_color'] = cell_contents.color
                     format_cache[fmt_key] = workbook.add_format(fmt_dict)
                 cell_format = format_cache[fmt_key]
             
-                worksheet.write(alt_y, x, '', cell_format)
+                worksheet.write(alt_y, x, cell_contents.symbol, cell_format)
 
         workbook.close()
     

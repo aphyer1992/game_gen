@@ -59,6 +59,10 @@ class TerrType(Enum):
     @property
     def label(self):
         return self.value[0]
+    
+    @property
+    def clear_terrain(self):
+        return self in (TerrType.GRASS, TerrType.DESERT, TerrType.BUILDING, TerrType.ROAD)
 
 class CellContents(Enum):
     EMPTY = ("Empty", '', None)
@@ -73,7 +77,16 @@ class CellContents(Enum):
     FIRE_SHIELD = ("Shield", "★", "#FF0000") 
     BOW = ("Bow", "★", "#00FF00") 
     BLESSING = ("Blessing", "★", "#0000FF")
+    ITEM = ("Item", "?", "#FF00FF") # when we haven't decided what it is yet
+    
+    @property
+    def symbol(self):
+        return self.value[1]
 
     @property
     def label(self):
-        return self.value
+        return self.value[0]
+
+    @property
+    def color(self):
+        return self.value[2]
