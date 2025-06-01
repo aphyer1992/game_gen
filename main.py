@@ -4,6 +4,7 @@ import math
 import random
 import os
 from support_classes import Coordinates, TerrType, CellContents
+import itertools
 
 class Map:
     def __init__(self, width, height):
@@ -33,6 +34,7 @@ class Map:
         for coord in contents:
             if self.is_valid_coordinates(coord):
                 self.room_numbers[coord.y][coord.x] = self.next_room_number
+                self.set_cell(coord.x, coord.y, TerrType.BUILDING)
         self.next_room_number += 1
 
     def is_door(self, coord1, coord2):
@@ -94,6 +96,40 @@ class Map:
 
         return island if island else []
     
+    def reachable_coordinates(self):
+        reachable_terrains = [t for t in TerrType if t.clear_terrain]
+        possible_blocking_terrains = [TerrType.LAVA, TerrType.WATER, TerrType.TREE, TerrType.DESERT]
+        blocking_terrain_combinations = [tuple(list(subset)) for r in range(len(possible_blocking_terrains) + 1) for subset in itertools.combinations(possible_blocking_terrains, r)]
+        results = {}
+        for combo in blocking_terrain_combinations:
+            items = tuple([b for b in possible_blocking_terrains if b not in combo])
+            island = self.flood_fill(Coordinates(0, 0), combo)
+            results[items] = {
+                'all' : island,
+                'clear' : [c for c in island if self.get_cell(c.x, c.y) in reachable_terrains],
+            }
+        for items in results.keys():
+            print('With items {}: {} reachable cells of which {} are clear'.format(
+                items, 
+                len(results[items]['all']),
+                len(results[items]['clear'])
+            ))
+        return results
+
+    def evaluate_item_usefulness(self):
+        reachable = self.reachable_coordinates()
+        possible_blocking_terrains = [TerrType.LAVA, TerrType.WATER, TerrType.TREE, TerrType.DESERT]
+        for t in possible_blocking_terrains:
+            with_item = [len(reachable[k]['clear']) for k in reachable.keys() if t in k]
+            without_item = [len(reachable[k]['clear']) for k in reachable.keys() if t not in k]
+            assert(len(with_item) == len(without_item)), "Mismatch in item counts"
+            print('Terrain {}: {} reachable with, {} reachable without'.format(
+                t.label,
+                sum(with_item)/len(with_item), 
+                sum(without_item)/len(without_item)
+
+            ))
+
     def split_map_by_terrain(self, split_terrain_types):
         visited = set()
         islands = []
@@ -295,12 +331,12 @@ class Map:
         return([range_start, range_end])
 
     def generate_castle(self):
-        castle_y_size = self.random_y_value(0.25, 0.3)
-        castle_x_size = self.random_x_value(0.25, 0.3)
+        castle_y_size = self.random_y_value(0.28, 0.33)
+        castle_x_size = self.random_x_value(0.28, 0.33)
         castle_y_min = self.random_y_value(0.6, 0.65)
         castle_x_min = self.random_x_value(0.6, 0.65)
-        castle_y_max = castle_y_min + castle_y_size
-        castle_x_max = castle_x_min + castle_x_size
+        castle_y_max = castle_y_min + castle_y_size - 1
+        castle_x_max = castle_x_min + castle_x_size - 1
 
         contents = []
 
@@ -324,24 +360,63 @@ class Map:
                 contents.remove(Coordinates(x, y))
         
         print('Castle has size {}x{} starting at ({}, {}) with indent depth {}'.format(castle_x_size, castle_y_size, castle_x_min, castle_y_min, indent_depth))
+        
+        # boss room has special rules to be opposite gate
+        boss_room_size = 5
 
         if random.random() < 0.5: # gate on bottom
             [gate_x_start, gate_x_end] = self.get_gate_position(castle_x_min, castle_x_size)
             gate_y = min([c.y for c in contents if c.x == gate_x_start])
             print(f"Adding gate at ({gate_x_start}, {gate_y}) to ({gate_x_end}, {gate_y})")
-            for x in range(gate_x_start, gate_x_end + 1):
+            for x in range(gate_x_start, gate_x_end):
                 self.doors.append((Coordinates(x, gate_y), Coordinates(x, gate_y - 1)))
+
+            boss_y_max = max([c.y for c in contents if c.x == gate_x_start]) - 2 # above the gate, with a bit of space to put the entrance opposite.
+            boss_y_min = boss_y_max - boss_room_size + 1
+            boss_x_min = gate_x_start - 1
+            boss_x_max = boss_x_min + boss_room_size - 1
+            boss_contents = []
+            for x in range(boss_x_min, boss_x_max + 1):
+                for y in range(boss_y_min, boss_y_max + 1):
+                    if self.is_valid_coordinates(Coordinates(x, y)):
+                        boss_contents.append(Coordinates(x, y))
+                        contents.remove(Coordinates(x, y))
+            self.add_room(boss_contents)
+            self.doors.append((
+                Coordinates(boss_x_min + 2, boss_y_max),
+                Coordinates(boss_x_min + 2, boss_y_max + 1),
+            ))
+
         else: # gate on left
             [gate_y_start, gate_y_end] = self.get_gate_position(castle_y_min, castle_y_size)
             gate_x = min([c.x for c in contents if c.y == gate_y_start])
             print(f"Adding gate at ({gate_x}, {gate_y_start}) to ({gate_x}, {gate_y_end})")
-            for y in range(gate_y_start, gate_y_end + 1):
+            for y in range(gate_y_start, gate_y_end):
                 self.doors.append((Coordinates(gate_x, y), Coordinates(gate_x - 1, y)))
 
+            boss_x_max = max([c.x for c in contents if c.y == gate_y_start]) - 2 # right of the gate, with a bit of space to put the entrance opposite.
+            boss_x_min = boss_x_max - boss_room_size + 1
+            boss_y_min = gate_y_start - 1
+            boss_y_max = boss_y_min + boss_room_size - 1
+            boss_contents = []
+            for x in range(boss_x_min, boss_x_max + 1):
+                for y in range(boss_y_min, boss_y_max + 1):
+                    if self.is_valid_coordinates(Coordinates(x, y)):
+                        boss_contents.append(Coordinates(x, y))
+                        contents.remove(Coordinates(x, y))
+            self.add_room(boss_contents)
+            self.doors.append((
+                Coordinates(boss_x_max, boss_y_min + 2),
+                Coordinates(boss_x_max + 1, boss_y_min + 2),
+            ))
+        
+        self.cell_contents[boss_y_min][boss_x_min] = CellContents.SEAL
+        self.cell_contents[boss_y_min][boss_x_max] = CellContents.SEAL
+        self.cell_contents[boss_y_max][boss_x_min] = CellContents.SEAL
+        self.cell_contents[boss_y_max][boss_x_max] = CellContents.SEAL
+        self.cell_contents[boss_y_min+2][boss_x_min+2] = CellContents.BOSS
+
         self.add_room(contents)
-        for coord in contents:
-            if self.is_valid_coordinates(coord):
-                self.set_cell(coord.x, coord.y, TerrType.BUILDING)
                 
 
     def find_spot_for_building(self, base_x_size, base_y_size):
@@ -398,9 +473,6 @@ class Map:
                 bite_contents = self.take_bite(start_coord, base_x_size, base_y_size, bite[0], bite[1], bite_size)
                 contents = [c for c in contents if c not in bite_contents]
         self.add_room(contents)
-        for coord in contents: 
-            if self.is_valid_coordinates(coord):
-                self.set_cell(coord.x, coord.y, TerrType.BUILDING)
         
         sides = ['top', 'bottom', 'left', 'right']
         
@@ -503,7 +575,7 @@ class Map:
 
     def place_items(self):
         self.cell_contents[0][0] = CellContents.SHRINE
-        items_to_place = 30 # 20 gems, 5 shrines, 5 pickups
+        items_to_place = 31 # 20 gems, 5 shrines, 6 pickups
         items_placed = 0
         item_locations = [Coordinates(0, 0)]  # start with the shrine location
         tries = 0
@@ -511,8 +583,8 @@ class Map:
             x = random.randint(0, self.width - 1)
             y = random.randint(0, self.height - 1)
             new_loc = Coordinates(x, y)
-            min_spread = (self.width + self.height) // 10
-            if self.get_cell(x, y).clear_terrain and self.find_closest_distance([new_loc], item_locations)[0] >= min_spread :
+            min_spread = (self.width + self.height) // 11
+            if self.get_cell(x, y).clear_terrain and self.cell_contents[y][x] == CellContents.EMPTY and self.find_closest_distance([new_loc], item_locations)[0] >= min_spread :
                 item_locations.append(new_loc)
                 items_placed += 1
             tries += 1
@@ -528,6 +600,7 @@ class Map:
         self.cell_contents[item_locations[27].y][item_locations[27].x] = CellContents.WATER_BOOTS
         self.cell_contents[item_locations[28].y][item_locations[28].x] = CellContents.FIRE_SHIELD
         self.cell_contents[item_locations[29].y][item_locations[29].x] = CellContents.BLESSING
+        self.cell_contents[item_locations[30].y][item_locations[30].x] = CellContents.AXE
     
     def generate_map(self):
         self.generate_rivers()
@@ -539,6 +612,7 @@ class Map:
         self.generate_forests()
         self.scatter_trees()
         self.place_items()
+        #self.evaluate_item_usefulness()
 
     def export_to_excel(self, filename):
         workbook = xlsxwriter.Workbook(filename)

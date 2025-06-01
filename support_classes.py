@@ -77,6 +77,7 @@ class CellContents(Enum):
     FIRE_SHIELD = ("Shield", "★", "#FF0000") 
     BOW = ("Bow", "★", "#00FF00") 
     BLESSING = ("Blessing", "★", "#0000FF")
+    AXE = ("Axe", "★", "#FF8000")
     ITEM = ("Item", "?", "#FF00FF") # when we haven't decided what it is yet
     
     @property
