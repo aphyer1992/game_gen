@@ -72,7 +72,7 @@ class CellContents(Enum):
     BOSS = ("Boss", "☠", "#C00000")       
     DRAGON = ("Dragon", "Ϟ", "#548235")    
     GEM = ("Gem", "◆", "#FFFFFF")   
-    DESERT_CLOAK = ("Cloak", "★", "#FFD700")        
+    DESERT_CLOAK = ("Cloak", "★", "#CCFF00")        
     WATER_BOOTS = ("Boots", "★", "#00F0F0")  
     FIRE_SHIELD = ("Shield", "★", "#FF0000") 
     BOW = ("Bow", "★", "#00FF00") 
