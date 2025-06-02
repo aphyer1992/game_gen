@@ -29,6 +29,14 @@ class Map:
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.room_numbers[y][x]
         return None
+    
+    def get_room_contents(self, room_number):
+        contents = []
+        for y in range(self.height):
+            for x in range(self.width):
+                if self.room_numbers[y][x] == room_number:
+                    contents.append(Coordinates(x, y))
+        return contents
 
     def add_room(self, contents):
         for coord in contents:
@@ -39,6 +47,13 @@ class Map:
 
     def is_door(self, coord1, coord2):
         return (coord1, coord2) in self.doors or (coord2, coord1) in self.doors
+
+    def is_wall(self, coord1, coord2):
+        if self.room_numbers[coord1.y][coord1.x] == self.room_numbers[coord2.y][coord2.x]:
+            return False
+        if self.is_door(coord1, coord2):
+            return False
+        return True
 
     def is_valid_coordinates(self, coordinates):
         return 0 <= coordinates.x < self.width and 0 <= coordinates.y < self.height
@@ -74,7 +89,25 @@ class Map:
         max_y = math.floor(self.height * min(max_pct, 0.99999)) # we can't use 1.0 because it would be out of bounds
         return random.randint(min_y, max_y)
     
-    def flood_fill(self, start, blocking_terrain_types):
+    def split_into_continuous_regions(self, area):
+        visited = set()
+        regions = []
+        for i in area:
+            if i not in visited:
+                stack = [i]
+                region = []
+                while stack:
+                    current = stack.pop()
+                    assert current not in visited
+                    visited.add(current)
+                    region.append(current)
+                    for neighbor in current.get_neighboring_coordinates():
+                        if self.is_valid_coordinates(neighbor) and neighbor not in visited and neighbor not in stack and neighbor in area:
+                            stack.append(neighbor)
+                regions.append(region)
+        return regions
+
+    def flood_fill(self, start, blocking_terrain_types, blocked_walls=False):
         if not self.is_valid_coordinates(start):
             return []
         
@@ -92,7 +125,8 @@ class Map:
 
             for neighbor in current.get_neighboring_coordinates():
                 if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) not in blocking_terrain_types:
-                    stack.append(neighbor)
+                    if not blocked_walls or not self.is_wall(current, neighbor):
+                        stack.append(neighbor)
 
         return island if island else []
     
@@ -103,7 +137,7 @@ class Map:
         results = {}
         for combo in blocking_terrain_combinations:
             items = tuple([b for b in possible_blocking_terrains if b not in combo])
-            island = self.flood_fill(Coordinates(0, 0), combo)
+            island = self.flood_fill(Coordinates(0, 0), combo, blocked_walls=True)
             results[items] = {
                 'all' : island,
                 'clear' : [c for c in island if self.get_cell(c.x, c.y) in reachable_terrains],
@@ -321,6 +355,75 @@ class Map:
             self.draw_river(start_coord, end_coord, set_terrain=TerrType.ROAD, meander_coeff=0.0, widen_iterations=0)
             num_bridges -= 1
 
+    def add_door_from_new_room(self, new_room_contents, old_room_contents):
+        door_added = False
+        random.shuffle(new_room_contents)
+        for door_point in new_room_contents:
+            if door_added and random.random() < 0.9: # usually only one door
+                continue
+            neighbors = door_point.get_neighboring_coordinates()
+            for n in neighbors:
+                if n in old_room_contents or (old_room_contents == [] and n not in new_room_contents):  # if the old room is empty, we can add a door to any neighbor
+                    self.doors.append((door_point, n))
+                    door_added = True
+                    break
+        assert door_added, "No door could be added for new room with contents: \n{}\n\nstarting from:\n{}".format(new_room_contents, old_room_contents)
+                
+            
+
+    def split_building_into_rooms(self, building_contents):
+        if 2 + (random.random() * random.random() * 30) > len(building_contents): # we want to allow large rooms but make them rare
+            return
+        
+        # we have a couple different ways of splitting.
+        split_type = random.choice(['x', 'y', 'fill'])
+        if split_type == 'y':
+            min_y = min([c.y for c in building_contents])
+            max_y = max([c.y for c in building_contents])
+            if min_y == max_y:
+                return
+            y_split = random.choice(range(min_y, max_y)) # this can give min and not max, but we will include this row in the bottom.
+            new_contents = [c for c in building_contents if c.y <= y_split]
+        elif split_type == 'x':
+            min_x = min([c.x for c in building_contents])
+            max_x = max([c.x for c in building_contents])
+            if min_x == max_x:
+                return
+            x_split = random.choice(range(min_x, max_x))
+            new_contents = [c for c in building_contents if c.x <= x_split]
+        elif split_type == 'fill':
+            start_point = random.choice(building_contents)
+            new_contents = [start_point]
+            desired_size = math.floor(len(building_contents) * random.random() * 0.6) + 1
+            while len(new_contents) < desired_size:
+                focus = random.choice(new_contents)
+                neighbors = focus.get_neighboring_coordinates()
+                for i in neighbors:
+                    if i in building_contents and i not in new_contents and random.random() < 0.5:
+                        new_contents.append(i)
+        else:
+            raise ValueError("Invalid split type: {}".format(split_type))
+        
+        old_contents = [c for c in building_contents if c not in new_contents]
+
+        new_rooms = self.split_into_continuous_regions(new_contents)
+        for i in new_rooms:
+            if len(i) >= 1:
+                self.add_room(i)
+                self.add_door_from_new_room(i, old_contents)
+        
+
+        # still need to handle doors if the old room is split in two but that will take reachability.
+        old_rooms = self.split_into_continuous_regions(old_contents)
+        for i in old_rooms:
+            if i != old_rooms[0]: # that keeps the previous id
+                self.add_room(i)
+
+        for i in old_rooms:
+            self.split_building_into_rooms(i)
+        for i in new_rooms:
+            self.split_building_into_rooms(i)
+
     def get_gate_position(self, start, size):
         if size%2 == 0:
             gate_size = 2
@@ -370,6 +473,8 @@ class Map:
             print(f"Adding gate at ({gate_x_start}, {gate_y}) to ({gate_x_end}, {gate_y})")
             for x in range(gate_x_start, gate_x_end):
                 self.doors.append((Coordinates(x, gate_y), Coordinates(x, gate_y - 1)))
+            for x in range(gate_x_start, gate_x_end - 1): # keep the castle from splitting just inside the gate
+                self.doors.append((Coordinates(x, gate_y), Coordinates(x + 1, gate_y)))
 
             boss_y_max = max([c.y for c in contents if c.x == gate_x_start]) - 2 # above the gate, with a bit of space to put the entrance opposite.
             boss_y_min = boss_y_max - boss_room_size + 1
@@ -393,6 +498,8 @@ class Map:
             print(f"Adding gate at ({gate_x}, {gate_y_start}) to ({gate_x}, {gate_y_end})")
             for y in range(gate_y_start, gate_y_end):
                 self.doors.append((Coordinates(gate_x, y), Coordinates(gate_x - 1, y)))
+            for y in range(gate_y_start, gate_y_end - 1): # keep the castle from splitting just inside the gate
+                self.doors.append((Coordinates(gate_x, y), Coordinates(gate_x, y + 1)))
 
             boss_x_max = max([c.x for c in contents if c.y == gate_y_start]) - 2 # right of the gate, with a bit of space to put the entrance opposite.
             boss_x_min = boss_x_max - boss_room_size + 1
@@ -417,7 +524,7 @@ class Map:
         self.cell_contents[boss_y_min+2][boss_x_min+2] = CellContents.BOSS
 
         self.add_room(contents)
-                
+        self.split_building_into_rooms(contents)
 
     def find_spot_for_building(self, base_x_size, base_y_size):
         for x in random.sample(range(self.width - base_x_size), 1):
@@ -442,6 +549,12 @@ class Map:
                     bite_contents.append(Coordinates(x, y)) 
         return bite_contents
         
+    def open_unreachable_rooms(self):
+        reachable = self.flood_fill(Coordinates(0, 0), [], blocked_walls=True)
+        unreachable_rooms = [self.room_numbers[y][x] for x in range(self.width) for y in range(self.height) if Coordinates(x, y) not in reachable]
+        for room_number in set(unreachable_rooms):
+            if room_number > 0: # we can have an outdoor area that is unreachable because of being blocked off by rooms missing doros.  This should resolve itself when the rooms get doors.
+                self.add_door_from_new_room(self.get_room_contents(room_number), [])
 
     def generate_building(self):
         start_coord = None
@@ -516,6 +629,7 @@ class Map:
                 doors_made += 1
                 sides.remove(side)
 
+        self.split_building_into_rooms(contents)
         return(len(contents))
 
     def generate_buildings(self):
@@ -546,7 +660,6 @@ class Map:
                                     lava_count += 1
                                     self.set_cell(next_neighbor.x, next_neighbor.y, TerrType.LAVA)
         
-
     def generate_forests(self):
         num_forests = random.randint(3, 5)
         for _ in range(num_forests):
@@ -608,6 +721,7 @@ class Map:
         self.generate_bridges()
         self.generate_castle()
         self.generate_buildings()
+        self.open_unreachable_rooms()
         self.generate_lava()
         self.generate_forests()
         self.scatter_trees()
