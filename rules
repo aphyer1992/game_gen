@@ -13,8 +13,7 @@ Each turn, you may either:
 OR
 2. Attack an adjacent space.  If there is an enemy in that space:
   a. It takes 1 damage.
-  b. It is knocked back 1 space away from you (if possible).
-  c. It skips its next action.
+  b. It is knocked back 2 spaces from you (if possible).
 OR
 3. Interact (various effects depending on what is at your location).
                                             
