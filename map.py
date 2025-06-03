@@ -3,7 +3,8 @@ from enum import Enum
 import math
 import random
 import os
-from support_classes import Coordinates, TerrType, CellContents
+from support_classes import *
+from vaults import vaults
 import itertools
 
 class Map:
@@ -15,6 +16,7 @@ class Map:
         self.cell_contents = [[CellContents.EMPTY for _ in range(width)] for _ in range(height)]
         self.next_room_number = 1
         self.doors = []
+        self.forced_walls = []  # walls in addition to the usual ones around buildings
 
     def set_cell(self, x, y, value):
         if 0 <= x < self.width and 0 <= y < self.height:
@@ -23,6 +25,15 @@ class Map:
     def get_cell(self, x, y):
         if 0 <= x < self.width and 0 <= y < self.height:
             return self.cells[y][x]
+        return None
+    
+    def set_cell_contents(self, x, y, value):
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.cell_contents[y][x] = value
+    
+    def get_cell_contents(self, x, y):
+        if 0 <= x < self.width and 0 <= y < self.height:
+            return self.cell_contents[y][x]
         return None
     
     def get_room_number(self, x, y):
@@ -38,17 +49,33 @@ class Map:
                     contents.append(Coordinates(x, y))
         return contents
 
-    def add_room(self, contents):
+    def add_door(self, coord1, coord2):
+        if self.is_valid_coordinates(coord1) and self.is_valid_coordinates(coord2) and not self.is_forced_wall(coord1, coord2):
+            if not self.is_door(coord1, coord2):
+                self.doors.append((coord1, coord2))
+    
+    def add_forced_wall(self, coord1, coord2):
+        if self.is_valid_coordinates(coord1) and self.is_valid_coordinates(coord2):
+            if not self.is_wall(coord1, coord2):
+                self.forced_walls.append((coord1, coord2))
+            assert not self.is_door(coord1, coord2), "Forced wall cannot be a door: {} to {}".format(coord1, coord2)
+
+    def add_room(self, contents, terr_type=TerrType.BUILDING):
         for coord in contents:
             if self.is_valid_coordinates(coord):
                 self.room_numbers[coord.y][coord.x] = self.next_room_number
-                self.set_cell(coord.x, coord.y, TerrType.BUILDING)
+                self.set_cell(coord.x, coord.y, terr_type)
         self.next_room_number += 1
 
     def is_door(self, coord1, coord2):
         return (coord1, coord2) in self.doors or (coord2, coord1) in self.doors
 
+    def is_forced_wall(self, coord1, coord2):
+        return (coord1, coord2) in self.forced_walls or (coord2, coord1) in self.forced_walls
+    
     def is_wall(self, coord1, coord2):
+        if self.is_forced_wall(coord1, coord2):
+            return True
         if self.room_numbers[coord1.y][coord1.x] == self.room_numbers[coord2.y][coord2.x]:
             return False
         if self.is_door(coord1, coord2):
@@ -310,7 +337,7 @@ class Map:
             Coordinates(self.random_x_value(0.5, 1.0), self.random_y_value(0, 0.1)),
             Coordinates(self.random_x_value(0, 0.5), self.random_y_value(0.9, 1.0)),
         ])
-        self.generate_desert(large_desert_center, size=random.randint(13, 15), subcenters=random.randint(1, 3))
+        self.generate_desert(large_desert_center, size=random.randint(14, 16), subcenters=random.randint(1, 3))
 
         for i in range(random.randint(1, 3)):
             small_desert_center = Coordinates(
@@ -322,7 +349,7 @@ class Map:
                     self.random_x_value(0.0, 1.0),  
                     self.random_y_value(0.0, 1.0)
                 )
-            self.generate_desert(small_desert_center, size=random.randint(7,9), subcenters = random.randint(0,1))
+            self.generate_desert(small_desert_center, size=random.randint(9,11), subcenters = random.randint(0,1))
 
     def generate_bridges(self):
         islands = self.split_map_by_terrain([TerrType.WATER])
@@ -371,7 +398,7 @@ class Map:
                 
             
 
-    def split_building_into_rooms(self, building_contents):
+    def split_building_into_rooms(self, building_contents, terr_type=TerrType.BUILDING):
         if 2 + (random.random() * random.random() * 30) > len(building_contents): # we want to allow large rooms but make them rare
             return
         
@@ -409,20 +436,19 @@ class Map:
         new_rooms = self.split_into_continuous_regions(new_contents)
         for i in new_rooms:
             if len(i) >= 1:
-                self.add_room(i)
+                self.add_room(i, terr_type=terr_type)
                 self.add_door_from_new_room(i, old_contents)
         
-
         # still need to handle doors if the old room is split in two but that will take reachability.
         old_rooms = self.split_into_continuous_regions(old_contents)
         for i in old_rooms:
             if i != old_rooms[0]: # that keeps the previous id
-                self.add_room(i)
+                self.add_room(i, terr_type=terr_type)
 
         for i in old_rooms:
-            self.split_building_into_rooms(i)
+            self.split_building_into_rooms(i, terr_type=terr_type)
         for i in new_rooms:
-            self.split_building_into_rooms(i)
+            self.split_building_into_rooms(i, terr_type=terr_type)
 
     def get_gate_position(self, start, size):
         if size%2 == 0:
@@ -486,7 +512,7 @@ class Map:
                     if self.is_valid_coordinates(Coordinates(x, y)):
                         boss_contents.append(Coordinates(x, y))
                         contents.remove(Coordinates(x, y))
-            self.add_room(boss_contents)
+            self.add_room(boss_contents, terr_type=TerrType.CASTLE)
             self.doors.append((
                 Coordinates(boss_x_min + 2, boss_y_max),
                 Coordinates(boss_x_min + 2, boss_y_max + 1),
@@ -511,25 +537,36 @@ class Map:
                     if self.is_valid_coordinates(Coordinates(x, y)):
                         boss_contents.append(Coordinates(x, y))
                         contents.remove(Coordinates(x, y))
-            self.add_room(boss_contents)
+            self.add_room(boss_contents, terr_type=TerrType.CASTLE)
             self.doors.append((
                 Coordinates(boss_x_max, boss_y_min + 2),
                 Coordinates(boss_x_max + 1, boss_y_min + 2),
             ))
         
-        self.cell_contents[boss_y_min][boss_x_min] = CellContents.SEAL
-        self.cell_contents[boss_y_min][boss_x_max] = CellContents.SEAL
-        self.cell_contents[boss_y_max][boss_x_min] = CellContents.SEAL
-        self.cell_contents[boss_y_max][boss_x_max] = CellContents.SEAL
-        self.cell_contents[boss_y_min+2][boss_x_min+2] = CellContents.BOSS
+        # the only way into the boss room is through that door.
+        boss_door_count = 0
+        for c in boss_contents:
+            for n in c.get_neighboring_coordinates():
+                if self.is_valid_coordinates(n) and n not in boss_contents:
+                    if self.is_door(c, n):
+                        boss_door_count += 1
+                    else:
+                        self.add_forced_wall(c, n)
+        print(f"Boss room has {boss_door_count} doors, which is {'good' if boss_door_count == 1 else 'bad'}")
+        
+        self.set_cell_contents(boss_x_min, boss_y_min, CellContents.SEAL)
+        self.set_cell_contents(boss_x_min, boss_y_max, CellContents.SEAL)
+        self.set_cell_contents(boss_x_max, boss_y_min, CellContents.SEAL)
+        self.set_cell_contents(boss_x_max, boss_y_max, CellContents.SEAL)
+        self.set_cell_contents(boss_x_min + 2, boss_y_min + 2, CellContents.BOSS)
 
-        self.add_room(contents)
-        self.split_building_into_rooms(contents)
+        self.add_room(contents, terr_type=TerrType.CASTLE)
+        self.split_building_into_rooms(contents, terr_type=TerrType.CASTLE)
 
     def find_spot_for_building(self, base_x_size, base_y_size):
         for x in random.sample(range(self.width - base_x_size), 1):
             for y in random.sample(range(self.height - base_y_size), 1):
-                if all(self.get_cell(x + dx, y + dy) not in [TerrType.BUILDING, TerrType.WATER] for dx in range(base_x_size) for dy in range(base_y_size)):
+                if all(self.get_cell(x + dx, y + dy) not in [TerrType.BUILDING, TerrType.CASTLE, TerrType.WATER] for dx in range(base_x_size) for dy in range(base_y_size)):
                     return Coordinates(x, y)
 
     def take_bite(self, start_coord, x_size, y_size, x_corner, y_corner, bite_size):
@@ -644,7 +681,7 @@ class Map:
         while lava_count < desired_lava_count:
             start = Coordinates(self.random_x_value(0.5, 1.0), self.random_y_value(0.5, 1.0))
             end = random.choice(self.valid_coordinates_in_range(start, 10, exact=False))
-            lava_count += self.draw_river(start, end, set_terrain=TerrType.LAVA, meander_coeff=0.2, widen_iterations=0, widen_coeff=0, skip_terrains=[TerrType.WATER, TerrType.LAVA, TerrType.BUILDING])
+            lava_count += self.draw_river(start, end, set_terrain=TerrType.LAVA, meander_coeff=0.2, widen_iterations=0, widen_coeff=0, skip_terrains=[TerrType.WATER, TerrType.LAVA, TerrType.BUILDING, TerrType.CASTLE])
             
             for y in range(self.height // 2, self.height):
                 for x in range(self.width // 2, self.width):
@@ -687,8 +724,22 @@ class Map:
                     self.set_cell(x, y, TerrType.TREE)
 
     def place_items(self):
-        self.cell_contents[0][0] = CellContents.SHRINE
-        items_to_place = 31 # 20 gems, 5 shrines, 6 pickups
+        item_list = [CellContents.DESERT_CLOAK, CellContents.WATER_BOOTS, CellContents.FIRE_SHIELD, CellContents.AXE, CellContents.BOW, CellContents.BLESSING]
+        gems_placed = 0
+        wild_items_placed = 0
+        wild_item_locations = []
+        for x in range(self.width):
+            for y in range(self.height):
+                if self.get_cell_contents(x,y) == CellContents.GEM:
+                    gems_placed += 1
+                elif self.get_cell_contents(x,y) == CellContents.ITEM:
+                    wild_items_placed += 1
+                    wild_item_locations.append(Coordinates(x, y))
+
+        self.set_cell_contents(0, 0, CellContents.SHRINE) 
+        gems_to_place = 20 - gems_placed
+        wild_items_to_place = len(item_list) - wild_items_placed
+        items_to_place = 5 + gems_to_place + wild_items_to_place # 20 gems, 5 shrines, 6 pickups
         items_placed = 0
         item_locations = [Coordinates(0, 0)]  # start with the shrine location
         tries = 0
@@ -697,24 +748,38 @@ class Map:
             y = random.randint(0, self.height - 1)
             new_loc = Coordinates(x, y)
             min_spread = (self.width + self.height) // 11
-            if self.get_cell(x, y).clear_terrain and self.cell_contents[y][x] == CellContents.EMPTY and self.find_closest_distance([new_loc], item_locations)[0] >= min_spread :
+            if self.get_cell(x, y).clear_terrain and self.get_cell_contents(x, y) == CellContents.EMPTY and self.find_closest_distance([new_loc], item_locations)[0] >= min_spread :
                 item_locations.append(new_loc)
                 items_placed += 1
             tries += 1
             if tries > 1000:
                 raise("Too many tries to place items, check the map size or item count.")
         random.shuffle(item_locations)
-        for i in range(20):
-            self.cell_contents[item_locations[i].y][item_locations[i].x] = CellContents.GEM
-        for i in range(20, 25):
-            self.cell_contents[item_locations[i].y][item_locations[i].x] = CellContents.SHRINE
-        self.cell_contents[item_locations[25].y][item_locations[25].x] = CellContents.DESERT_CLOAK
-        self.cell_contents[item_locations[26].y][item_locations[26].x] = CellContents.BOW
-        self.cell_contents[item_locations[27].y][item_locations[27].x] = CellContents.WATER_BOOTS
-        self.cell_contents[item_locations[28].y][item_locations[28].x] = CellContents.FIRE_SHIELD
-        self.cell_contents[item_locations[29].y][item_locations[29].x] = CellContents.BLESSING
-        self.cell_contents[item_locations[30].y][item_locations[30].x] = CellContents.AXE
+        for i in range(gems_to_place):
+            self.set_cell_contents(item_locations[i].x, item_locations[i].y, CellContents.GEM)
+        for i in range(gems_to_place, gems_to_place + 5):
+            self.set_cell_contents(item_locations[i].x, item_locations[i].y, CellContents.SHRINE)
+        for i in range(gems_to_place + 5, gems_to_place + 5 + wild_items_to_place):
+            self.set_cell_contents(item_locations[i].x, item_locations[i].y, CellContents.ITEM)
+            wild_item_locations.append(item_locations[i])
+        
+        assert(len(wild_item_locations) == len(item_list))
+        random.shuffle(wild_item_locations)
+        for i in range(len(wild_item_locations)):
+            item_location = wild_item_locations[i]
+            item = item_list[i]
+            self.set_cell_contents(item_location.x, item_location.y, item)
+            print(f"Placed {item.label} at {item_location}.")
     
+    def place_vaults(self):
+        vaults_list = vaults
+        vaults_to_place = [v for v in vaults_list if random.random() < v.probability]
+        random.shuffle(vaults_to_place)
+        for v in vaults_to_place:
+            location = v.find_location_func(self)
+            if location is not None:
+                v.place_func(self, location)
+
     def generate_map(self):
         self.generate_rivers()
         self.generate_deserts()
@@ -725,6 +790,7 @@ class Map:
         self.generate_lava()
         self.generate_forests()
         self.scatter_trees()
+        self.place_vaults()
         self.place_items()
         #self.evaluate_item_usefulness()
 
@@ -743,30 +809,23 @@ class Map:
                 borders = {}
                 # Check up
                 if y < self.height - 1:
-                    if self.room_numbers[y][x] != self.room_numbers[y + 1][x]:
-                        if not self.is_door(Coordinates(x, y), Coordinates(x, y + 1)):
-                            borders['top'] = 2  # thick
-                # Check down
+                    if self.is_wall(Coordinates(x, y), Coordinates(x, y + 1)):
+                        borders['top'] = 2 # thick
                 if y > 0:
-                    if self.room_numbers[y][x] != self.room_numbers[y - 1][x]:
-                        if not self.is_door(Coordinates(x, y), Coordinates(x, y - 1)):
-                            borders['bottom'] = 2
-                # Check left
-                if x > 0:   
-                    if self.room_numbers[y][x] != self.room_numbers[y][x - 1]:
-                        if not self.is_door(Coordinates(x, y), Coordinates(x - 1, y)):
-                            borders['left'] = 2
-                # Check right
+                    if self.is_wall(Coordinates(x, y), Coordinates(x, y - 1)):
+                        borders['bottom'] = 2
+                if x > 0:
+                    if self.is_wall(Coordinates(x, y), Coordinates(x - 1, y)):
+                        borders['left'] = 2
                 if x < self.width - 1:
-                    if self.room_numbers[y][x] != self.room_numbers[y][x + 1]:
-                        if not self.is_door(Coordinates(x, y), Coordinates(x + 1, y)):
-                            borders['right'] = 2
+                    if self.is_wall(Coordinates(x, y), Coordinates(x + 1, y)):
+                        borders['right'] = 2
                 # Build format key
                 border_key = (borders.get('top', 0), borders.get('bottom', 0),
                             borders.get('left', 0), borders.get('right', 0))
             
                 cell_type = self.get_cell(x, y)
-                cell_contents = self.cell_contents[y][x]
+                cell_contents = self.get_cell_contents(x, y)
                 contents_key = cell_contents.label
                 fmt_key = (cell_type.color, border_key, contents_key)
                 if fmt_key not in format_cache:

@@ -48,6 +48,7 @@ class TerrType(Enum):
     TREE = ("Tree", "#548235")        # dark green
     WATER = ("Water", "#00B0F0")      # blue
     BUILDING = ("Building", "#999999")    # gray
+    CASTLE = ("Castle", "#444444")    # dark gray
     DESERT = ("Desert", "#FFD966")    # yellow
     LAVA = ("Lava", "#FF0000")        # red
     ROAD = ("Road", "#C2B280")        # brown
@@ -79,6 +80,7 @@ class CellContents(Enum):
     BLESSING = ("Blessing", "★", "#0000FF")
     AXE = ("Axe", "★", "#FF8000")
     ITEM = ("Item", "?", "#FF00FF") # when we haven't decided what it is yet
+    FORCE_EMPTY = ("Force Empty", '', None)  # used to force empty cells in the grid
     
     @property
     def symbol(self):
