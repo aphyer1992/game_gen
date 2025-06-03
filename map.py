@@ -56,7 +56,7 @@ class Map:
     
     def add_forced_wall(self, coord1, coord2):
         if self.is_valid_coordinates(coord1) and self.is_valid_coordinates(coord2):
-            if not self.is_wall(coord1, coord2):
+            if not self.is_forced_wall(coord1, coord2):
                 self.forced_walls.append((coord1, coord2))
             assert not self.is_door(coord1, coord2), "Forced wall cannot be a door: {} to {}".format(coord1, coord2)
 
@@ -394,12 +394,30 @@ class Map:
                     self.doors.append((door_point, n))
                     door_added = True
                     break
-        assert door_added, "No door could be added for new room with contents: \n{}\n\nstarting from:\n{}".format(new_room_contents, old_room_contents)
-                
+
+        if not door_added: # this can happen if a building is weirdly multi-segmented
+            indoor_links = []
+            outdoor_links = []
+            for door_point in new_room_contents:
+                neighbors = door_point.get_neighboring_coordinates()
+                for n in neighbors:
+                    if n not in new_room_contents:
+                        if self.get_cell(n.x, n.y) in [TerrType.CASTLE, TerrType.BUILDING]:
+                            indoor_links.append((door_point, n))
+                        else:
+                            outdoor_links.append((door_point, n))
+            if len(indoor_links):
+                door_point, n = random.choice(indoor_links)
+                self.doors.append((door_point, n))
+                door_added = True
+            else:
+                assert(False) # I think this should never happen, but if it does we need to figure out why.
+        
+        return door_added
             
 
     def split_building_into_rooms(self, building_contents, terr_type=TerrType.BUILDING):
-        if 2 + (random.random() * random.random() * 30) > len(building_contents): # we want to allow large rooms but make them rare
+        if 1 + (random.random() * 4) + (random.random() * random.random() * 20) > len(building_contents): # we want to allow large rooms but make them rare
             return
         
         # we have a couple different ways of splitting.
@@ -433,17 +451,17 @@ class Map:
         
         old_contents = [c for c in building_contents if c not in new_contents]
 
-        new_rooms = self.split_into_continuous_regions(new_contents)
-        for i in new_rooms:
-            if len(i) >= 1:
-                self.add_room(i, terr_type=terr_type)
-                self.add_door_from_new_room(i, old_contents)
-        
-        # still need to handle doors if the old room is split in two but that will take reachability.
         old_rooms = self.split_into_continuous_regions(old_contents)
         for i in old_rooms:
             if i != old_rooms[0]: # that keeps the previous id
                 self.add_room(i, terr_type=terr_type)
+
+        new_rooms = self.split_into_continuous_regions(new_contents)
+        for i in new_rooms:
+            if len(i) >= 1:
+                self.add_room(i, terr_type=terr_type)
+                for o in old_rooms:
+                    self.add_door_from_new_room(i, o)      
 
         for i in old_rooms:
             self.split_building_into_rooms(i, terr_type=terr_type)
@@ -786,7 +804,7 @@ class Map:
         self.generate_bridges()
         self.generate_castle()
         self.generate_buildings()
-        self.open_unreachable_rooms()
+        #self.open_unreachable_rooms()
         self.generate_lava()
         self.generate_forests()
         self.scatter_trees()
@@ -859,6 +877,7 @@ if __name__ == "__main__":
     map_width = 50
     map_height = 50
     for i in range(3):
+        random.seed(i + 42)
         game_map = Map(map_width, map_height)
         game_map.generate_map()
         name = "game_map_{}.xlsx".format(i + 1)
