@@ -91,7 +91,7 @@ class Map:
     
     def closest_terrain(self, coordinates, terrain_type):
         if not self.is_valid_coordinates(coordinates):
-            return None
+            return [None, None]
         closest_distance = float('inf')
         closest_coord = None
         for y in range(self.height):
@@ -101,7 +101,7 @@ class Map:
                     if distance < closest_distance:
                         closest_distance = distance
                         closest_coord = Coordinates(x, y)
-        return closest_distance
+        return [closest_distance, closest_coord]
     
     def valid_coordinates_in_range(self, coordinates, distance, exact=False):
         valid_coords = []
@@ -207,6 +207,19 @@ class Map:
                         visited.update(island)
         return islands
     
+    def draw_random_spread(self, start, iterations, spread_probability, valid_terrain_types):
+        marked_cells = set()
+        marked_cells.add(start)
+        for i in range(iterations):
+            to_mark = set()
+            for coord in marked_cells:
+                for neighbor in coord.get_neighboring_coordinates():
+                    if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) in valid_terrain_types:
+                        if random.random() < spread_probability:
+                            to_mark.add(neighbor)
+            marked_cells.update(to_mark)
+        return(marked_cells)
+
     def draw_river(self, start, end, set_terrain=TerrType.WATER, meander_coeff=0.5, widen_iterations=2, widen_coeff=0.2, skip_terrains=[]):
         river_coords = [start]
         current_coord = start
@@ -281,7 +294,7 @@ class Map:
                     while stack:
                         current = stack.pop()
                         for neighbor in current.get_neighboring_coordinates():
-                            dist_to_land = self.closest_terrain(neighbor, TerrType.GRASS)
+                            dist_to_land = self.closest_terrain(neighbor, TerrType.GRASS)[0]
                             if self.is_valid_coordinates(neighbor) and neighbor not in island_squares and dist_to_land >= 3 and random.random() < 0.8:
                                 island_squares.append(neighbor)
                                 stack.append(neighbor)
@@ -302,31 +315,12 @@ class Map:
                     closest_end = coord2
         return [closest_distance, closest_start, closest_end]
 
-
     def generate_desert(self, center, size, subcenters=0):
-        marked_cells = set()
-        marked_cells.add(center)
-        for i in range(size):
-            to_mark = set()
-            for coord in marked_cells:
-                for neighbor in coord.get_neighboring_coordinates():
-                    if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS:
-                        if random.random() < 0.8:
-                            to_mark.add(neighbor)
-            marked_cells.update(to_mark)
+        marked_cells = self.draw_random_spread(center, size, 0.8, [TerrType.GRASS])
+        
         for i in range(subcenters):
             subcenter = random.choice(center.get_coordinates_in_range(size-1, exact=True))
-            sub_marked_cells = set()
-            sub_marked_cells.add(subcenter)
-            for i in range(size // 2):
-                to_mark = set()
-                for coord in sub_marked_cells:
-                    for neighbor in coord.get_neighboring_coordinates():
-                        if self.is_valid_coordinates(neighbor) and self.get_cell(neighbor.x, neighbor.y) == TerrType.GRASS:
-                            if random.random() < 0.8:
-                                self.set_cell(neighbor.x, neighbor.y, TerrType.DESERT)
-                                to_mark.add(neighbor)
-                sub_marked_cells.update(to_mark)
+            sub_marked_cells = self.draw_random_spread(subcenter, size // 2, 0.8, [TerrType.GRASS])
             marked_cells.update(sub_marked_cells)
 
         for coord in marked_cells:
