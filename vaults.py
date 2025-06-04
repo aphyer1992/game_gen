@@ -58,62 +58,28 @@ def place_desert_pyramid(game_map, location):
     game_map.add_room(r4)
 
     directions = ['up', 'down', 'left', 'right']
-    r1_door = random.choice(directions)
-    if r1_door == 'up':
-        game_map.add_door(location, Coordinates(location.x, location.y + 1))
-    elif r1_door == 'down':
-        game_map.add_door(location, Coordinates(location.x, location.y - 1))
-    elif r1_door == 'left':
-        game_map.add_door(location, Coordinates(location.x - 1, location.y))
-    elif r1_door == 'right':
-        game_map.add_door(location, Coordinates(location.x + 1, location.y))
-    
-    r2_door = random.choice([d for d in directions if d != r1_door])
-    if r2_door == 'up':
-        game_map.add_door(Coordinates(location.x, location.y + 1), Coordinates(location.x, location.y + 2))
-    elif r2_door == 'down':
-        game_map.add_door(Coordinates(location.x, location.y - 1), Coordinates(location.x, location.y - 2))
-    elif r2_door == 'left':
-        game_map.add_door(Coordinates(location.x - 1, location.y), Coordinates(location.x - 2, location.y))
-    elif r2_door == 'right':
-        game_map.add_door(Coordinates(location.x + 1, location.y), Coordinates(location.x + 2, location.y))
+    latest_door = None
+    for ring in range(0, 4):
+        door_direction = random.choice([d for d in directions if d != latest_door])
+        if door_direction == 'up':
+            game_map.add_door(Coordinates(location.x, location.y + ring), Coordinates(location.x, location.y + ring + 1))
+        elif door_direction == 'down':
+            game_map.add_door(Coordinates(location.x, location.y - ring), Coordinates(location.x, location.y - ring - 1))
+        elif door_direction == 'left':
+            game_map.add_door(Coordinates(location.x - ring, location.y), Coordinates(location.x - ring - 1, location.y))
+        elif door_direction == 'right':
+            game_map.add_door(Coordinates(location.x + ring, location.y), Coordinates(location.x + ring + 1, location.y))
+        latest_door = door_direction
 
-    r3_door = random.choice([d for d in directions if d != r1_door])
-    if r3_door == 'up':
-        game_map.add_door(Coordinates(location.x, location.y + 2), Coordinates(location.x, location.y + 3))
-    elif r3_door == 'down':
-        game_map.add_door(Coordinates(location.x, location.y - 2), Coordinates(location.x, location.y - 3))
-    elif r3_door == 'left':
-        game_map.add_door(Coordinates(location.x - 2, location.y), Coordinates(location.x - 3, location.y))
-    elif r3_door == 'right':
-        game_map.add_door(Coordinates(location.x + 2, location.y), Coordinates(location.x + 3, location.y))
+    dead_ends = []
+    for ring in [r2, r3, r4]:
+        wall_a = random.choice(ring)
+        neighbors = wall_a.get_neighboring_coordinates()
+        wall_b = random.choice([n for n in neighbors if n in ring and n != wall_a])
+        game_map.add_forced_wall(wall_a, wall_b)
+        dead_ends.append(wall_a)
+        dead_ends.append(wall_b)
 
-    r4_door = random.choice([d for d in directions if d != r3_door])
-    if r4_door == 'up':
-        game_map.add_door(Coordinates(location.x, location.y + 3), Coordinates(location.x, location.y + 4))
-    elif r4_door == 'down':
-        game_map.add_door(Coordinates(location.x, location.y - 3), Coordinates(location.x, location.y - 4))
-    elif r4_door == 'left':
-        game_map.add_door(Coordinates(location.x - 3, location.y), Coordinates(location.x - 4, location.y))
-    elif r4_door == 'right':
-        game_map.add_door(Coordinates(location.x + 3, location.y), Coordinates(location.x + 4, location.y))
-
-    r2_wall_a = random.choice(r2)
-    neighbors = r2_wall_a.get_neighboring_coordinates()
-    r2_wall_b = random.choice([n for n in neighbors if n in r2 and n != r2_wall_a])
-    game_map.add_forced_wall(r2_wall_a, r2_wall_b)
-    
-    r3_wall_a = random.choice(r3)
-    neighbors = r3_wall_a.get_neighboring_coordinates()
-    r3_wall_b = random.choice([n for n in neighbors if n in r3 and n != r3_wall_a])
-    game_map.add_forced_wall(r3_wall_a, r3_wall_b)
-
-    r4_wall_a = random.choice(r4)
-    neighbors = r4_wall_a.get_neighboring_coordinates() 
-    r4_wall_b = random.choice([n for n in neighbors if n in r4 and n != r4_wall_a])
-    game_map.add_forced_wall(r4_wall_a, r4_wall_b)
-
-    dead_ends = [r2_wall_a, r2_wall_b, r3_wall_a, r3_wall_b, r4_wall_a, r4_wall_b]
     if random.random() < 0.5:
         dead_end_terr = TerrType.LAVA
     else:

@@ -414,7 +414,6 @@ class Map:
                 assert(False) # I think this should never happen, but if it does we need to figure out why.
         
         return door_added
-            
 
     def split_building_into_rooms(self, building_contents, terr_type=TerrType.BUILDING):
         if 1 + (random.random() * 4) + (random.random() * random.random() * 20) > len(building_contents): # we want to allow large rooms but make them rare
