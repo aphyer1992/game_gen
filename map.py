@@ -16,7 +16,7 @@ class Map:
         self.cell_contents = [[CellContents.EMPTY for _ in range(width)] for _ in range(height)]
         self.next_room_number = 1
         self.doors = []
-        self.forced_walls = []  # walls in addition to the usual ones around buildings
+        self.forced_walls = []  # walls in addition to the usual ones around buildings or rooms
 
     def set_cell(self, x, y, value):
         if 0 <= x < self.width and 0 <= y < self.height:
@@ -41,11 +41,15 @@ class Map:
             return self.room_numbers[y][x]
         return None
     
+    def set_room_number(self, x, y, room_number):
+        if 0 <= x < self.width and 0 <= y < self.height:
+            self.room_numbers[y][x] = room_number
+    
     def get_room_contents(self, room_number):
         contents = []
         for y in range(self.height):
             for x in range(self.width):
-                if self.room_numbers[y][x] == room_number:
+                if self.get_room_number(x,y) == room_number:
                     contents.append(Coordinates(x, y))
         return contents
 
@@ -63,7 +67,7 @@ class Map:
     def add_room(self, contents, terr_type=TerrType.BUILDING):
         for coord in contents:
             if self.is_valid_coordinates(coord):
-                self.room_numbers[coord.y][coord.x] = self.next_room_number
+                self.set_room_number(coord.x, coord.y, self.next_room_number)
                 self.set_cell(coord.x, coord.y, terr_type)
         self.next_room_number += 1
 
@@ -76,7 +80,7 @@ class Map:
     def is_wall(self, coord1, coord2):
         if self.is_forced_wall(coord1, coord2):
             return True
-        if self.room_numbers[coord1.y][coord1.x] == self.room_numbers[coord2.y][coord2.x]:
+        if self.get_room_number(coord1.x, coord1.y) == self.get_room_number(coord2.x, coord2.y):
             return False
         if self.is_door(coord1, coord2):
             return False
@@ -605,7 +609,7 @@ class Map:
         
     def open_unreachable_rooms(self):
         reachable = self.flood_fill(Coordinates(0, 0), [], blocked_walls=True)
-        unreachable_rooms = [self.room_numbers[y][x] for x in range(self.width) for y in range(self.height) if Coordinates(x, y) not in reachable]
+        unreachable_rooms = [self.get_room_number(x,y) for x in range(self.width) for y in range(self.height) if Coordinates(x, y) not in reachable]
         for room_number in set(unreachable_rooms):
             if room_number > 0: # we can have an outdoor area that is unreachable because of being blocked off by rooms missing doros.  This should resolve itself when the rooms get doors.
                 self.add_door_from_new_room(self.get_room_contents(room_number), [])
