@@ -7,6 +7,27 @@ from support_classes import *
 from vaults import vaults
 import itertools
 
+# 'branching': like 'forward', but keeps 2 access items on offer at once so
+# the route isn't forced (gem_placement.place_items_branching).
+# 'forward': items go into hiding places one progression step at a time
+# (gem_placement.place_items_forward_fill). 'assumed': the older assumed-fill
+# placement on random spread-out tiles.
+ITEM_PLACEMENT = 'branching'
+# 'spread': shrines spread across the map in interesting spots
+# (gem_placement.place_shrines_spread); 'random': random spread-out tiles.
+SHRINE_PLACEMENT = 'spread'
+CARVE_TRAILS = True      # trails.carve_trails: winding paths out of the start area
+GATE_GEMS = 8            # gems you must hold to open the castle gate (0 = no gate lock)
+CASTLE_ITEM = True       # put one access item in the Castle Armory (optional to win)
+BOSS_ROOM_6X6 = 0.4      # chance the boss room is 6x6 instead of 5x5
+BOSS_ROOM_LAVA = 0.35    # chance of 1-3 lava tiles in the boss room
+FILL_EMPTY = True        # fill_empty: set pieces in big empty plains, then copses/ponds in any empty 5x5
+FURNISH_CASTLE = True    # castle.furnish_castle: gems + lava traps (ogres come from ogre_placement)
+PURPOSEFUL_BUILDINGS = True  # buildings.ensure_purposeful_buildings
+PLACE_GHOSTS = True      # ghost_placement.place_ghosts + the Silver Sword item
+HORSE_ITEM = True        # the Horse: gallop up to 4 tiles in a straight line (speed only)
+PLACE_OGRES = True       # ogre_placement.place_ogres (guards + wanderers)
+
 class Map:
     def __init__(self, width, height):
         self.width = width
@@ -17,6 +38,8 @@ class Map:
         self.next_room_number = 1
         self.doors = []
         self.forced_walls = []  # walls in addition to the usual ones around buildings or rooms
+        self.castle_gate = []     # (inside, outside) door pairs of the castle gate
+        self.gate_gems = 0        # gems you must hold to open the gate (0 = always open)
 
     def set_cell(self, x, y, value):
         if 0 <= x < self.width and 0 <= y < self.height:
@@ -200,7 +223,7 @@ class Map:
         islands = []
         for y in range(self.height):
             for x in range(self.width):
-                if self.get_cell(x, y) not in split_terrain_types:
+                if self.get_cell(x, y) not in split_terrain_types and Coordinates(x, y) not in visited:
                     island = self.flood_fill(Coordinates(x, y), split_terrain_types)
                     if island:
                         islands.append(island)
@@ -474,6 +497,37 @@ class Map:
         range_end = start + (size+gate_size) // 2
         return([range_start, range_end])
 
+    def _boss_room_fits(self, contents, x0, x1, y0, y1):
+        cset = set(contents)
+        return all(Coordinates(x, y) in cset for x in range(x0, x1 + 1) for y in range(y0, y1 + 1))
+
+    def _add_boss_room_lava(self, room, door_inside, boss_pos):
+        """Turn 1-3 boss-room tiles into lava, never a seal, the boss, the
+        tile inside the door or anything next to the door, and never cutting
+        a seal off from the door."""
+        seals = [c for c in room if self.get_cell_contents(c.x, c.y) == CellContents.SEAL]
+        options = [c for c in room if c not in seals and c != boss_pos
+                   and c.get_distance(door_inside) > 1]
+        random.shuffle(options)
+        lava = set()
+        want = random.randint(1, 3)
+        for c in options:
+            if len(lava) >= want:
+                break
+            trial = lava | {c}
+            seen = {door_inside}
+            stack = [door_inside]
+            while stack:
+                t = stack.pop()
+                for n in t.get_neighboring_coordinates():
+                    if n in room and n not in seen and n not in trial:
+                        seen.add(n)
+                        stack.append(n)
+            if all(sl in seen for sl in seals) and boss_pos in seen:
+                lava = trial
+        for c in lava:
+            self.set_cell(c.x, c.y, TerrType.LAVA)
+
     def generate_castle(self):
         castle_y_size = self.random_y_value(0.28, 0.33)
         castle_x_size = self.random_x_value(0.28, 0.33)
@@ -506,7 +560,8 @@ class Map:
         print('Castle has size {}x{} starting at ({}, {}) with indent depth {}'.format(castle_x_size, castle_y_size, castle_x_min, castle_y_min, indent_depth))
         
         # boss room has special rules to be opposite gate
-        boss_room_size = 5
+        # Boss room: usually 5x5, sometimes 6x6 (falls back to 5x5 if 6x6 doesn't fit).
+        boss_sizes = [6, 5] if random.random() < BOSS_ROOM_6X6 else [5]
 
         if random.random() < 0.5: # gate on bottom
             [gate_x_start, gate_x_end] = self.get_gate_position(castle_x_min, castle_x_size)
@@ -514,13 +569,18 @@ class Map:
             print(f"Adding gate at ({gate_x_start}, {gate_y}) to ({gate_x_end}, {gate_y})")
             for x in range(gate_x_start, gate_x_end):
                 self.doors.append((Coordinates(x, gate_y), Coordinates(x, gate_y - 1)))
+                self.castle_gate.append((Coordinates(x, gate_y), Coordinates(x, gate_y - 1)))
             for x in range(gate_x_start, gate_x_end - 1): # keep the castle from splitting just inside the gate
                 self.doors.append((Coordinates(x, gate_y), Coordinates(x + 1, gate_y)))
 
-            boss_y_max = max([c.y for c in contents if c.x == gate_x_start]) - 2 # above the gate, with a bit of space to put the entrance opposite.
-            boss_y_min = boss_y_max - boss_room_size + 1
-            boss_x_min = gate_x_start - 1
-            boss_x_max = boss_x_min + boss_room_size - 1
+            for boss_room_size in boss_sizes:
+                boss_y_max = max([c.y for c in contents if c.x == gate_x_start]) - 2 # above the gate, with a bit of space to put the entrance opposite.
+                boss_y_min = boss_y_max - boss_room_size + 1
+                boss_x_min = gate_x_start - 1
+                boss_x_max = boss_x_min + boss_room_size - 1
+                if self._boss_room_fits(contents, boss_x_min, boss_x_max, boss_y_min, boss_y_max):
+                    break
+            door_off = 2 if boss_room_size == 5 else random.choice([2, 3])
             boss_contents = []
             for x in range(boss_x_min, boss_x_max + 1):
                 for y in range(boss_y_min, boss_y_max + 1):
@@ -529,9 +589,10 @@ class Map:
                         contents.remove(Coordinates(x, y))
             self.add_room(boss_contents, terr_type=TerrType.CASTLE)
             self.doors.append((
-                Coordinates(boss_x_min + 2, boss_y_max),
-                Coordinates(boss_x_min + 2, boss_y_max + 1),
+                Coordinates(boss_x_min + door_off, boss_y_max),
+                Coordinates(boss_x_min + door_off, boss_y_max + 1),
             ))
+            door_inside = Coordinates(boss_x_min + door_off, boss_y_max)
 
         else: # gate on left
             [gate_y_start, gate_y_end] = self.get_gate_position(castle_y_min, castle_y_size)
@@ -539,13 +600,18 @@ class Map:
             print(f"Adding gate at ({gate_x}, {gate_y_start}) to ({gate_x}, {gate_y_end})")
             for y in range(gate_y_start, gate_y_end):
                 self.doors.append((Coordinates(gate_x, y), Coordinates(gate_x - 1, y)))
+                self.castle_gate.append((Coordinates(gate_x, y), Coordinates(gate_x - 1, y)))
             for y in range(gate_y_start, gate_y_end - 1): # keep the castle from splitting just inside the gate
                 self.doors.append((Coordinates(gate_x, y), Coordinates(gate_x, y + 1)))
 
-            boss_x_max = max([c.x for c in contents if c.y == gate_y_start]) - 2 # right of the gate, with a bit of space to put the entrance opposite.
-            boss_x_min = boss_x_max - boss_room_size + 1
-            boss_y_min = gate_y_start - 1
-            boss_y_max = boss_y_min + boss_room_size - 1
+            for boss_room_size in boss_sizes:
+                boss_x_max = max([c.x for c in contents if c.y == gate_y_start]) - 2 # right of the gate, with a bit of space to put the entrance opposite.
+                boss_x_min = boss_x_max - boss_room_size + 1
+                boss_y_min = gate_y_start - 1
+                boss_y_max = boss_y_min + boss_room_size - 1
+                if self._boss_room_fits(contents, boss_x_min, boss_x_max, boss_y_min, boss_y_max):
+                    break
+            door_off = 2 if boss_room_size == 5 else random.choice([2, 3])
             boss_contents = []
             for x in range(boss_x_min, boss_x_max + 1):
                 for y in range(boss_y_min, boss_y_max + 1):
@@ -554,9 +620,10 @@ class Map:
                         contents.remove(Coordinates(x, y))
             self.add_room(boss_contents, terr_type=TerrType.CASTLE)
             self.doors.append((
-                Coordinates(boss_x_max, boss_y_min + 2),
-                Coordinates(boss_x_max + 1, boss_y_min + 2),
+                Coordinates(boss_x_max, boss_y_min + door_off),
+                Coordinates(boss_x_max + 1, boss_y_min + door_off),
             ))
+            door_inside = Coordinates(boss_x_max, boss_y_min + door_off)
         
         # the only way into the boss room is through that door.
         boss_door_count = 0
@@ -573,7 +640,12 @@ class Map:
         self.set_cell_contents(boss_x_min, boss_y_max, CellContents.SEAL)
         self.set_cell_contents(boss_x_max, boss_y_min, CellContents.SEAL)
         self.set_cell_contents(boss_x_max, boss_y_max, CellContents.SEAL)
-        self.set_cell_contents(boss_x_min + 2, boss_y_min + 2, CellContents.BOSS)
+        boss_off = 2 if boss_room_size == 5 else random.choice([2, 3])
+        boss_pos = Coordinates(boss_x_min + boss_off, boss_y_min + boss_off)
+        self.set_cell_contents(boss_pos.x, boss_pos.y, CellContents.BOSS)
+        if random.random() < BOSS_ROOM_LAVA:
+            self._add_boss_room_lava(boss_contents, door_inside, boss_pos)
+        self.boss_room_size = boss_room_size
 
         self.add_room(contents, terr_type=TerrType.CASTLE)
         self.split_building_into_rooms(contents, terr_type=TerrType.CASTLE)
@@ -581,7 +653,7 @@ class Map:
     def find_spot_for_building(self, base_x_size, base_y_size):
         for x in random.sample(range(self.width - base_x_size), 1):
             for y in random.sample(range(self.height - base_y_size), 1):
-                if all(self.get_cell(x + dx, y + dy) not in [TerrType.BUILDING, TerrType.CASTLE, TerrType.WATER] for dx in range(base_x_size) for dy in range(base_y_size)):
+                if all(self.get_cell(x + dx, y + dy) not in [TerrType.BUILDING, TerrType.CASTLE, TerrType.WATER] for dx in range(base_x_size) for dy in range(base_y_size)) and all(self.get_cell(x + dx, y + dy) != TerrType.CASTLE for dx in range(-1, base_x_size + 1) for dy in range(-1, base_y_size + 1)):  # keep the castle walls and gate clear
                     return Coordinates(x, y)
 
     def take_bite(self, start_coord, x_size, y_size, x_corner, y_corner, bite_size):
@@ -653,7 +725,8 @@ class Map:
             num_doors = random.choice([1,2,3,4])
         
         doors_made = 0
-        while doors_made < num_doors:
+        failed_tries = {side: 0 for side in sides}
+        while doors_made < num_doors and sides:
             side = random.choice(sides)
             if side == 'top':
                 top = max(coord.y for coord in contents)
@@ -680,6 +753,11 @@ class Map:
                 self.doors.append((inside, outside))
                 doors_made += 1
                 sides.remove(side)
+            else:
+                # e.g. a building on the map edge or against water: give up on this side eventually
+                failed_tries[side] += 1
+                if failed_tries[side] >= 10:
+                    sides.remove(side)
 
         self.split_building_into_rooms(contents)
         return(len(contents))
@@ -740,6 +818,10 @@ class Map:
 
     def place_items(self):
         item_list = [CellContents.DESERT_CLOAK, CellContents.WATER_BOOTS, CellContents.FIRE_SHIELD, CellContents.AXE, CellContents.BOW, CellContents.BLESSING]
+        if PLACE_GHOSTS:
+            item_list.append(CellContents.SILVER_SWORD)   # hurts Ghosts
+        if HORSE_ITEM:
+            item_list.append(CellContents.HORSE)          # speed only
         gems_placed = 0
         wild_items_placed = 0
         wild_item_locations = []
@@ -751,8 +833,25 @@ class Map:
                     wild_items_placed += 1
                     wild_item_locations.append(Coordinates(x, y))
 
-        self.set_cell_contents(0, 0, CellContents.SHRINE) 
-        gems_to_place = 20 - gems_placed
+        self.set_cell_contents(0, 0, CellContents.SHRINE)
+        if ITEM_PLACEMENT in ('forward', 'branching'):
+            # Shrines go on random spread-out tiles; items are then placed
+            # step by step into hiding places (gem_placement.place_items_forward_fill).
+            # Gems come afterwards (place_gated_gems).
+            from gem_placement import place_items_forward_fill, place_shrines_spread  # local import: it uses verify.py
+            if SHRINE_PLACEMENT != 'spread':
+                self.place_shrines(5)
+            elif len(place_shrines_spread(self, 5)) < 5:
+                self.place_shrines(5 - sum(1 for y in range(self.height) for x in range(self.width)
+                                           if self.get_cell_contents(x, y) == CellContents.SHRINE) + 1)
+            from gem_placement import place_items_branching
+            placer = place_items_branching if ITEM_PLACEMENT == 'branching' else place_items_forward_fill
+            for item_location, item in placer(self, item_list):
+                print(f"Placed {item.label} at {item_location}.")
+            return
+        # Gems are placed afterwards by gem_placement.place_gated_gems, which puts
+        # them behind items on purpose. Here we only place shrines and items.
+        gems_to_place = 0
         wild_items_to_place = len(item_list) - wild_items_placed
         items_to_place = 5 + gems_to_place + wild_items_to_place # 20 gems, 5 shrines, 6 pickups
         items_placed = 0
@@ -768,7 +867,8 @@ class Map:
                 items_placed += 1
             tries += 1
             if tries > 1000:
-                raise("Too many tries to place items, check the map size or item count.")
+                raise RuntimeError("Too many tries to place items, check the map size or item count.")
+        item_locations = item_locations[1:]  # never reassign the spawn shrine at (0, 0)
         random.shuffle(item_locations)
         for i in range(gems_to_place):
             self.set_cell_contents(item_locations[i].x, item_locations[i].y, CellContents.GEM)
@@ -779,17 +879,55 @@ class Map:
             wild_item_locations.append(item_locations[i])
         
         assert(len(wild_item_locations) == len(item_list))
-        random.shuffle(wild_item_locations)
-        for i in range(len(wild_item_locations)):
-            item_location = wild_item_locations[i]
-            item = item_list[i]
+        # Decide which item goes where so that they can all be collected in some
+        # order (no chicken-and-egg locks). See gem_placement.assign_items_assumed_fill.
+        from gem_placement import assign_items_assumed_fill  # local import: it uses verify.py
+        assignment = assign_items_assumed_fill(self, wild_item_locations, item_list)
+        for item_location, item in assignment:
             self.set_cell_contents(item_location.x, item_location.y, item)
             print(f"Placed {item.label} at {item_location}.")
     
+    def setup_castle_gate(self):
+        """The castle gate is locked: stand on a Gate tile just outside it and
+        interact while holding at least GATE_GEMS gems to open it for good.
+        Gate tiles become road so later terrain can't bury them."""
+        self.gate_gems = GATE_GEMS if self.castle_gate else 0
+        if not self.gate_gems:
+            return
+        for inside, outside in self.castle_gate:
+            self.set_cell(outside.x, outside.y, TerrType.ROAD)
+            self.set_cell_contents(outside.x, outside.y, CellContents.GATE)
+
+    def clear_spawn_area(self, radius=3):
+        """Spawn in a small grass clearing: a big desert, a forest or lava can
+        otherwise box the player in at the start (seeds 10, 20, 37)."""
+        for c in self.valid_coordinates_in_range(Coordinates(0, 0), radius):
+            if self.get_room_number(c.x, c.y) == 0 and self.get_cell(c.x, c.y) in (TerrType.DESERT, TerrType.TREE, TerrType.LAVA):
+                self.set_cell(c.x, c.y, TerrType.GRASS)
+
+    def place_shrines(self, count):
+        """Shrines on clear, empty tiles spread out from each other and spawn."""
+        taken = [Coordinates(0, 0)]
+        min_spread = (self.width + self.height) // 11
+        tries = 0
+        while len(taken) < count + 1:
+            x = random.randint(0, self.width - 1)
+            y = random.randint(0, self.height - 1)
+            loc = Coordinates(x, y)
+            tries += 1
+            spread = min_spread if tries < 1000 else min_spread // 2
+            if tries > 3000:
+                raise RuntimeError("Too many tries to place shrines.")
+            if (self.get_cell(x, y).clear_terrain and self.get_cell_contents(x, y) == CellContents.EMPTY
+                    and min(loc.get_distance(t) for t in taken) >= spread):
+                self.set_cell_contents(x, y, CellContents.SHRINE)
+                taken.append(loc)
+
     def place_vaults(self):
         vaults_list = vaults
+        # Fixed order (see vaults.py): e.g. the castle moat must come before
+        # vaults that might otherwise be put where the moat goes.
         vaults_to_place = [v for v in vaults_list if random.random() < v.probability]
-        random.shuffle(vaults_to_place)
         for v in vaults_to_place:
             location = v.find_location_func(self)
             if location is not None:
@@ -805,8 +943,36 @@ class Map:
         self.generate_lava()
         self.generate_forests()
         self.scatter_trees()
+        self.clear_spawn_area()
+        self.setup_castle_gate()
+        if CARVE_TRAILS:
+            from trails import carve_trails  # local import: it uses verify.py
+            carve_trails(self)
         self.place_vaults()
+        if FURNISH_CASTLE:
+            from castle import furnish_castle  # castle gems (often one per corner) and lava traps
+            furnish_castle(self)
+        if FILL_EMPTY:
+            from fill_empty import place_area_vaults  # set pieces in the emptiest plains
+            place_area_vaults(self)
+        from snake_placement import place_lava_snakes  # local import: it uses verify.py
+        place_lava_snakes(self)
+        if PLACE_GHOSTS:
+            from ghost_placement import place_ghosts  # local import: it uses verify.py
+            place_ghosts(self)
         self.place_items()
+        from gem_placement import place_gated_gems  # local import: it uses verify.py
+        place_gated_gems(self)
+        if PURPOSEFUL_BUILDINGS:
+            from buildings import ensure_purposeful_buildings, ensure_vaults_filled
+            ensure_vaults_filled(self)         # no vault guarding nothing
+            ensure_purposeful_buildings(self)  # every big building holds something or connects areas
+        if PLACE_OGRES:
+            from ogre_placement import place_ogres  # guards near items/gems, plus wanderers
+            place_ogres(self)
+        if FILL_EMPTY:
+            from fill_empty import decorate_empty  # no empty 5x5 block of plain grass left
+            decorate_empty(self)
         #self.evaluate_item_usefulness()
 
     def export_to_excel(self, filename):
@@ -851,7 +1017,8 @@ class Map:
                     if borders.get('right'): fmt_dict['right'] = borders['right']
                     fmt_dict['align'] = 'center'
                     fmt_dict['valign'] = 'vcenter'
-                    fmt_dict['font_color'] = cell_contents.color
+                    if cell_contents.color is not None: # newer xlsxwriter rejects None
+                        fmt_dict['font_color'] = cell_contents.color
                     format_cache[fmt_key] = workbook.add_format(fmt_dict)
                 cell_format = format_cache[fmt_key]
             
@@ -881,4 +1048,4 @@ if __name__ == "__main__":
         game_map.export_to_excel(name)
         os.startfile(name)
         print(f"Map generated and exported to '{name}' with dimensions {map_width}x{map_height}.")
-    input("Press Enter to exit...")
+    input("Press Enter to exit...")

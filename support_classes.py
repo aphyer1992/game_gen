@@ -79,6 +79,10 @@ class CellContents(Enum):
     BOW = ("Bow", "★", "#00FF00") 
     BLESSING = ("Blessing", "★", "#0000FF")
     AXE = ("Axe", "★", "#FF8000")
+    SILVER_SWORD = ("Sword", "★", "#C0C0C0")  # the only thing that hurts Ghosts
+    HORSE = ("Horse", "★", "#8B4513")         # gallop up to 4 tiles in a straight line
+    GHOST = ("Ghost", "☁", "#6A5ACD")          # roaming enemy, immune without the Silver Sword
+    GATE = ("Gate", "▤", "#B8860B")  # castle gate: interact here holding enough gems to open it
     ITEM = ("Item", "?", "#FF00FF") # when we haven't decided what it is yet
     FORCE_EMPTY = ("Force Empty", '', None)  # used to force empty cells in the grid
     

@@ -1,0 +1,34 @@
+# Seed 40 hand route, 197 turns (3:17). No warps, so it doesn't depend on the Blessing rules.
+# Items: Cloak, Axe, Flame Shield, Water Boots. The Blessing and Bow are skipped.
+# Gems: 4 in the south-west desert, 1 by the Bow, then 11 around the castle.
+
+ww ww ww ww ww dd dd dd dw aw wd d e.            # Desert Cloak
+aa sd dd ds d e.                                 # gem 1
+ss ss dd dd e.                                   # gem 2
+sd dd e.                                         # gem 3
+sd sd e.                                         # Woodcutter axe
+aw wd dd w e.                                    # gem 4
+sd dd ww ww aw wa aw wa aa aa ww ww wa a e.      # Flame Shield
+dd ww ww ww ww w xa aw xw ww xa a xa aw e.       # gem 5
+sd xw ww ww aw ww ww w xw wa ww ww w e.          # Water Boots
+ss dd dd ds ds ds xd dd s e.                     # gem 6
+w xw wd                                          # up to (23,43): the lava snake at (24,43) takes aim
+xd                                               # kill it before it breathes
+dw ww ww e.                                      # gem 7
+sd dd dd dd dd dd dd e.                          # gem 8 (cross column 30 mid-move so the snake at (30,44) never sees you)
+ww dd e.                                         # gem 9
+dd dd dd dd dd e.                                # gem 10 (the snake at (49,44) gets one hit in; it bounces you off the map edge)
+aa ss ss ss ss ss ss ss ss ss sa aa aa aa ss e.  # gem 11
+aa aa aa aw aa aa aa aa aa aw ww w e.            # gem 12
+aa ww w e.                                       # gem 13
+sd ww dw dd e.                                   # gem 14
+ss sd dd wa wd e.                                # gem 15
+as ds dd wd ww dd dd ss dd wd ss dd ds ds dd ds dw wd e. # gem 16
+as sa wa ww dw aw ww a                           # to the boss room door (turn 185)
+
+# --- Boss room: he moves 1 tile a turn and you move 2, so just run corner to corner ---
+ss e.                                            # seal 1 (SE)
+ww ww e.                                         # seal 2 (NE)
+aa aa e.                                         # seal 3 (NW)
+ss ss e.                                         # seal 4 (SW). He catches you once on the way (-1 Life)
+xd                                               # one hit: victory on turn 197
